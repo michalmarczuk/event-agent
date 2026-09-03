@@ -1,0 +1,31 @@
+name: Daily Events Agent
+
+on:
+  schedule:
+    - cron: "15 8 * * *"
+      timezone: "Europe/Warsaw"
+
+  workflow_dispatch:
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run events agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
+          MODEL: ${{ secrets.MODEL }}
+        run: python src/daily.py
