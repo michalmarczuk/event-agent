@@ -2,7 +2,7 @@ name: Daily Events Agent
 
 on:
   schedule:
-    - cron: "15 8 * * *"
+    - cron: "*/5 * * * *"
       timezone: "Europe/Warsaw"
 
   workflow_dispatch:
