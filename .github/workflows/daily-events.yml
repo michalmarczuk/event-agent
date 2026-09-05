@@ -3,7 +3,7 @@ name: Daily Events Agent
 on:
 
   schedule:
-    - cron: "23 * * * *"
+    - cron: "15 10 * * *"
       timezone: "Europe/Warsaw"
 
   workflow_dispatch:
