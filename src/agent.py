@@ -17,8 +17,6 @@ except ImportError:  # pragma: no cover - supports script execution
 
 load_dotenv()
 
-client = OpenAI()
-
 AGENT_INSTRUCTIONS = """
 You are an event discovery agent.
 
@@ -158,6 +156,7 @@ def run_agent(
     user_input: str,
     seen_event_ids: set[str] | None = None,
 ) -> AgentRunResult:
+    client = OpenAI()
     seen_event_ids = set(seen_event_ids or set())
     discovered_event_ids = set()
 

@@ -47,16 +47,17 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
 
     with (
         patch.object(
-            agent.client.responses,
-            "create",
-            side_effect=[first_response, second_response],
-        ) as create,
-            patch.object(
-                agent,
-                "execute_tool",
-                return_value=[Event("event-1", "Concert", None, None, None, None, "test")],
-            ) as execute_tool_mock,
+            agent,
+            "OpenAI",
+        ) as create_client,
+        patch.object(
+            agent,
+            "execute_tool",
+            return_value=[Event("event-1", "Concert", None, None, None, None, "test")],
+        ) as execute_tool_mock,
     ):
+        create = create_client.return_value.responses.create
+        create.side_effect = [first_response, second_response]
         result = agent.run_agent("Find events in Tychy")
 
     execute_tool_mock.assert_called_once_with(
@@ -87,16 +88,17 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
 
     with (
         patch.object(
-            agent.client.responses,
-            "create",
-            side_effect=[first_response, second_response],
-        ) as create,
+            agent,
+            "OpenAI",
+        ) as create_client,
         patch.object(
             agent,
             "execute_tool",
             side_effect=RuntimeError("Ticketmaster unavailable"),
         ),
     ):
+        create = create_client.return_value.responses.create
+        create.side_effect = [first_response, second_response]
         result = agent.run_agent("Find events in Tychy")
 
     assert create.call_count == 2
@@ -136,16 +138,17 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
 
     with (
         patch.object(
-            agent.client.responses,
-            "create",
-            side_effect=[first_response, second_response],
-        ) as create,
+            agent,
+            "OpenAI",
+        ) as create_client,
         patch.object(
             agent,
             "execute_tool",
             return_value=[seen_event, new_event],
         ),
     ):
+        create = create_client.return_value.responses.create
+        create.side_effect = [first_response, second_response]
         result = agent.run_agent("Find events in Tychy", {"seen"})
 
     sent_outputs = create.call_args_list[1].kwargs["input"]
