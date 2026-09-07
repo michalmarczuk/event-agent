@@ -3,9 +3,19 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import src.agent as agent
+from src.config import Settings
 from src.models import Event
 
-from src.agent import available_tools, execute_tool
+from src.tools.registry import execute_tool
+
+
+TEST_SETTINGS = Settings(
+    openai_api_key="openai-test-key",
+    ticketmaster_api_key="ticketmaster-test-key",
+    telegram_bot_token="telegram-test-token",
+    telegram_chat_id="telegram-test-chat",
+    model="test-model",
+)
 
 
 def test_execute_tool_dispatches_to_registered_tool():
@@ -16,12 +26,11 @@ def test_execute_tool_dispatches_to_registered_tool():
         captured["count"] = count
         return {"status": "ok", "name": name, "count": count}
 
-    available_tools["fake_tool"] = fake_tool
-
-    try:
-        result = execute_tool("fake_tool", {"name": "demo", "count": 3})
-    finally:
-        del available_tools["fake_tool"]
+    result = execute_tool(
+        {"fake_tool": fake_tool},
+        "fake_tool",
+        {"name": "demo", "count": 3},
+    )
 
     assert captured == {"name": "demo", "count": 3}
     assert result == {"status": "ok", "name": "demo", "count": 3}
@@ -46,6 +55,7 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
     )
 
     with (
+        patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
         patch.object(
             agent,
             "OpenAI",
@@ -60,8 +70,10 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
         create.side_effect = [first_response, second_response]
         result = agent.run_agent("Find events in Tychy")
 
-    execute_tool_mock.assert_called_once_with(
-        "search_events", {"city": "Tychy", "days_ahead": 30}
+    execute_tool_mock.assert_called_once()
+    assert execute_tool_mock.call_args.args[1:] == (
+        "search_events",
+        {"city": "Tychy", "days_ahead": 30},
     )
     assert create.call_count == 2
     assert result.text == "Found events in Tychy"
@@ -87,6 +99,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     )
 
     with (
+        patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
         patch.object(
             agent,
             "OpenAI",
@@ -137,6 +150,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
     new_event = Event("new", "New event", None, None, None, None, "test")
 
     with (
+        patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
         patch.object(
             agent,
             "OpenAI",

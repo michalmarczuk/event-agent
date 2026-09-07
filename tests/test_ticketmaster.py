@@ -1,0 +1,80 @@
+from unittest.mock import patch
+
+from src.models import Event, EventDetails
+from src.tools.ticketmaster import TicketmasterClient
+
+
+def test_search_events_uses_api_key_and_parses_events():
+    response = type(
+        "Response",
+        (),
+        {
+            "json": lambda self: {
+                "_embedded": {
+                    "events": [
+                        {
+                            "id": "event-1",
+                            "name": "Concert",
+                            "dates": {"start": {"localDate": "2026-09-10"}},
+                            "url": "https://example.test/event-1",
+                        }
+                    ]
+                }
+            },
+            "raise_for_status": lambda self: None,
+        },
+    )()
+
+    with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
+        events = TicketmasterClient("ticketmaster-test-key").search_events("Tychy", 30)
+
+    get.assert_called_once()
+    assert get.call_args.kwargs["params"]["apikey"] == "ticketmaster-test-key"
+    assert events == [
+        Event(
+            id="event-1",
+            name="Concert",
+            date="2026-09-10",
+            city="Tychy",
+            venue=None,
+            url="https://example.test/event-1",
+            source="ticketmaster",
+        )
+    ]
+
+
+def test_get_event_details_uses_api_key_and_parses_event():
+    response = type(
+        "Response",
+        (),
+        {
+            "json": lambda self: {
+                "name": "Concert",
+                "dates": {"start": {"localDate": "2026-09-10", "localTime": "19:00:00"}},
+                "url": "https://example.test/event-1",
+                "_embedded": {
+                    "venues": [
+                        {"name": "Arena", "city": {"name": "Tychy"}},
+                    ]
+                },
+            },
+            "raise_for_status": lambda self: None,
+        },
+    )()
+
+    with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
+        details = TicketmasterClient("ticketmaster-test-key").get_event_details("event-1")
+
+    get.assert_called_once_with(
+        "https://app.ticketmaster.com/discovery/v2/events/event-1.json",
+        params={"apikey": "ticketmaster-test-key"},
+        timeout=10,
+    )
+    assert details == EventDetails(
+        name="Concert",
+        date="2026-09-10",
+        time="19:00:00",
+        venue="Arena",
+        city="Tychy",
+        url="https://example.test/event-1",
+    )

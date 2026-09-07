@@ -1,21 +1,23 @@
 import json
-import os
-from datetime import datetime, timedelta, timezone
 from dataclasses import asdict, dataclass, is_dataclass
 
-import requests
-from dotenv import load_dotenv
 from openai import OpenAI
 
 try:
+    from .config import load_settings
     from .history import filter_unseen_events
-    from .models import Event, EventDetails
+    from .tools.registry import (
+        create_tool_handlers,
+        execute_tool,
+        get_tool_definitions,
+    )
+    from .tools.ticketmaster import TicketmasterClient
 except ImportError:  # pragma: no cover - supports script execution
+    from config import load_settings
     from history import filter_unseen_events
-    from models import Event, EventDetails
+    from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
+    from tools.ticketmaster import TicketmasterClient
 
-
-load_dotenv()
 
 AGENT_INSTRUCTIONS = """
 You are an event discovery agent.
@@ -36,191 +38,120 @@ class AgentRunResult:
     discovered_event_ids: set[str]
 
 
-def search_events(city: str, days_ahead: int):
-    print(f"TOOL: szukam prawdziwych wydarzeń w: {city}")
-
-    url = "https://app.ticketmaster.com/discovery/v2/events.json"
-
-    start_datetime = datetime.now(timezone.utc)
-    end_datetime = start_datetime + timedelta(days=days_ahead)
-
-    params = {
-        "apikey": os.getenv("TICKETMASTER_API_KEY"),
-        "city": city,
-        "countryCode": "PL",
-        "size": 10,
-        "sort": "date,asc",
-        "startDateTime": start_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "endDateTime": end_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    events = data.get("_embedded", {}).get("events", [])
-
+def _get_function_calls(response):
     return [
-        Event(
-            id=event["id"],
-            name=event["name"],
-            date=event.get("dates", {}).get("start", {}).get("localDate"),
-            city=city,
-            venue=None,
-            url=event.get("url"),
-            source="ticketmaster",
-        )
-        for event in events
+        item for item in response.output
+        if item.type == "function_call"
     ]
 
 
-def get_event_details(event_id: str) -> EventDetails:
-    print(f"TOOL: pobieram szczegóły wydarzenia: {event_id}")
+def _parse_tool_arguments(tool_call):
+    return json.loads(tool_call.arguments)
 
-    url = f"https://app.ticketmaster.com/discovery/v2/events/{event_id}.json"
 
-    response = requests.get(
-        url,
-        params={"apikey": os.getenv("TICKETMASTER_API_KEY")},
-        timeout=10,
+def _serialize_tool_result(result):
+    if isinstance(result, list):
+        return [
+            asdict(item) if is_dataclass(item) else item
+            for item in result
+        ]
+    if is_dataclass(result):
+        return asdict(result)
+    return result
+
+
+def _build_function_call_output(tool_call, result):
+    return {
+        "type": "function_call_output",
+        "call_id": tool_call.call_id,
+        "output": json.dumps(result),
+    }
+
+
+def _execute_tool_call(
+    tool_handlers,
+    tool_call,
+    seen_event_ids,
+    discovered_event_ids,
+):
+    arguments = _parse_tool_arguments(tool_call)
+    try:
+        result = execute_tool(tool_handlers, tool_call.name, arguments)
+    except Exception as exception:
+        return {
+            "error": True,
+            "message": str(exception),
+        }
+
+    if tool_call.name == "search_events" and isinstance(result, list):
+        result = filter_unseen_events(
+            result,
+            seen_event_ids | discovered_event_ids,
+        )
+        discovered_event_ids.update(event.id for event in result)
+
+    return _serialize_tool_result(result)
+
+
+def _continue_conversation(
+    client,
+    model,
+    response,
+    outputs,
+    tool_definitions,
+):
+    return client.responses.create(
+        model=model,
+        instructions=AGENT_INSTRUCTIONS,
+        previous_response_id=response.id,
+        input=outputs,
+        tools=tool_definitions,
     )
-    response.raise_for_status()
 
-    event = response.json()
-
-    venues = event.get("_embedded", {}).get("venues", [])
-    venue = venues[0] if venues else {}
-
-    return EventDetails(
-        name=event.get("name"),
-        date=event.get("dates", {}).get("start", {}).get("localDate"),
-        time=event.get("dates", {}).get("start", {}).get("localTime"),
-        venue=venue.get("name"),
-        city=venue.get("city", {}).get("name"),
-        url=event.get("url"),
-    )
-
-available_tools = {
-    "search_events": search_events,
-    "get_event_details": get_event_details,
-}
-
-
-def execute_tool(tool_name: str, arguments: dict):
-    tool_function = available_tools[tool_name]
-    return tool_function(**arguments)
-
-
-tools = [
-    {
-        "type": "function",
-        "name": "search_events",
-        "description": "Znajduje wydarzenia w podanym mieście.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "city": {
-                    "type": "string",
-                    "description": "Miasto, np. Tychy",
-                },
-                "days_ahead": {
-                    "type": "integer",
-                    "description": "Liczba dni do przodu od bieżącego czasu.",
-                }
-            },
-            "required": ["city", "days_ahead"],
-            "additionalProperties": False,
-        },
-        "strict": True,
-    },
-    {
-    "type": "function",
-    "name": "get_event_details",
-    "description": "Pobiera szczegółowe informacje o konkretnym wydarzeniu.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "event_id": {
-                "type": "string"
-            }
-        },
-        "required": ["event_id"],
-        "additionalProperties": False,
-    },
-    "strict": True,
-}
-]
 
 def run_agent(
     user_input: str,
     seen_event_ids: set[str] | None = None,
 ) -> AgentRunResult:
-    client = OpenAI()
+    """Run the agent conversation and return its text and new event IDs."""
+    settings = load_settings()
+    ticketmaster_client = TicketmasterClient(settings.ticketmaster_api_key)
+    tool_handlers = create_tool_handlers(ticketmaster_client)
+    tool_definitions = get_tool_definitions()
+    client = OpenAI(api_key=settings.openai_api_key)
     seen_event_ids = set(seen_event_ids or set())
     discovered_event_ids = set()
 
     response = client.responses.create(
-        model=os.getenv("MODEL"),
+        model=settings.model,
         instructions=AGENT_INSTRUCTIONS,
         input=user_input,
-        tools=tools,
+        tools=tool_definitions,
     )
 
-    while True:
-        tool_calls = [
-            item for item in response.output
-            if item.type == "function_call"
-        ]
-
-        if not tool_calls:
-            return AgentRunResult(
-                text=response.output_text,
-                discovered_event_ids=discovered_event_ids,
-            )
-
+    while tool_calls := _get_function_calls(response):
         outputs = []
-
         for tool_call in tool_calls:
-            arguments = json.loads(tool_call.arguments)
-            try:
-                result = execute_tool(tool_call.name, arguments)
-            except Exception as exception:
-                result = {
-                    "error": True,
-                    "message": str(exception),
-                }
-            else:
-                if tool_call.name == "search_events" and isinstance(result, list):
-                    result = filter_unseen_events(
-                        result,
-                        seen_event_ids | discovered_event_ids,
-                    )
-                    discovered_event_ids.update(event.id for event in result)
-
-                if isinstance(result, list):
-                    result = [
-                        asdict(item) if is_dataclass(item) else item
-                        for item in result
-                    ]
-                elif is_dataclass(result):
-                    result = asdict(result)
-
-            outputs.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": tool_call.call_id,
-                    "output": json.dumps(result),
-                }
+            result = _execute_tool_call(
+                tool_handlers,
+                tool_call,
+                seen_event_ids,
+                discovered_event_ids,
             )
+            outputs.append(_build_function_call_output(tool_call, result))
 
-        response = client.responses.create(
-            model=os.getenv("MODEL"),
-            instructions=AGENT_INSTRUCTIONS,
-            previous_response_id=response.id,
-            input=outputs,
-            tools=tools,
+        response = _continue_conversation(
+            client,
+            settings.model,
+            response,
+            outputs,
+            tool_definitions,
         )
+
+    return AgentRunResult(
+        text=response.output_text,
+        discovered_event_ids=discovered_event_ids,
+    )
 
 
 if __name__ == "__main__":
