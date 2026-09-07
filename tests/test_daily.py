@@ -1,5 +1,6 @@
 import runpy
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -28,10 +29,8 @@ def test_daily_saves_history_only_after_telegram_succeeds(monkeypatch):
     monkeypatch.setitem(sys.modules, "history", fake_history)
     monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
 
-    runpy.run_path(
-        "/Users/mmarczuk/Data/workspace/event-agent/src/daily.py",
-        run_name="__main__",
-    )
+    project_root = Path(__file__).resolve().parents[1]
+    runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
     assert telegram_checks == [("Found new events", [])]
     assert saved_ids == [{"seen", "new"}]
