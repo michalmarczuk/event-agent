@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import src.agent as agent
+from src.models import Event
 
 from src.agent import available_tools, execute_tool
 
@@ -50,7 +51,11 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
             "create",
             side_effect=[first_response, second_response],
         ) as create,
-        patch.object(agent, "execute_tool", return_value=[{"name": "Concert"}]) as execute_tool_mock,
+            patch.object(
+                agent,
+                "execute_tool",
+                return_value=[Event("event-1", "Concert", None, None, None, None, "test")],
+            ) as execute_tool_mock,
     ):
         result = agent.run_agent("Find events in Tychy")
 
@@ -58,7 +63,8 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
         "search_events", {"city": "Tychy", "days_ahead": 30}
     )
     assert create.call_count == 2
-    assert result == "Found events in Tychy"
+    assert result.text == "Found events in Tychy"
+    assert result.discovered_event_ids == {"event-1"}
 
 
 def test_run_agent_returns_tool_error_to_model_and_continues():
@@ -104,4 +110,55 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
             ),
         }
     ]
-    assert result == "I could not find events right now"
+    assert result.text == "I could not find events right now"
+    assert result.discovered_event_ids == set()
+
+
+def test_run_agent_filters_seen_events_and_returns_new_ids():
+    first_response = SimpleNamespace(
+        id="response-1",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name="search_events",
+                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                call_id="call-1",
+            )
+        ],
+    )
+    second_response = SimpleNamespace(
+        id="response-2",
+        output=[],
+        output_text="Found new events in Tychy",
+    )
+    seen_event = Event("seen", "Already seen", None, None, None, None, "test")
+    new_event = Event("new", "New event", None, None, None, None, "test")
+
+    with (
+        patch.object(
+            agent.client.responses,
+            "create",
+            side_effect=[first_response, second_response],
+        ) as create,
+        patch.object(
+            agent,
+            "execute_tool",
+            return_value=[seen_event, new_event],
+        ),
+    ):
+        result = agent.run_agent("Find events in Tychy", {"seen"})
+
+    sent_outputs = create.call_args_list[1].kwargs["input"]
+    assert json.loads(sent_outputs[0]["output"]) == [
+        {
+            "id": "new",
+            "name": "New event",
+            "date": None,
+            "city": None,
+            "venue": None,
+            "url": None,
+            "source": "test",
+        }
+    ]
+    assert result.text == "Found new events in Tychy"
+    assert result.discovered_event_ids == {"new"}

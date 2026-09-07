@@ -1,16 +1,17 @@
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass, is_dataclass
 
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from dataclasses import asdict, is_dataclass
-
 try:
+    from .history import filter_unseen_events
     from .models import Event, EventDetails
 except ImportError:  # pragma: no cover - supports script execution
+    from history import filter_unseen_events
     from models import Event, EventDetails
 
 
@@ -29,6 +30,12 @@ Prefer upcoming events.
 When comparing multiple events, select the most interesting ones
 and briefly explain why.
 """
+
+
+@dataclass
+class AgentRunResult:
+    text: str
+    discovered_event_ids: set[str]
 
 
 def search_events(city: str, days_ahead: int):
@@ -147,7 +154,13 @@ tools = [
 }
 ]
 
-def run_agent(user_input: str) -> str:
+def run_agent(
+    user_input: str,
+    seen_event_ids: set[str] | None = None,
+) -> AgentRunResult:
+    seen_event_ids = set(seen_event_ids or set())
+    discovered_event_ids = set()
+
     response = client.responses.create(
         model=os.getenv("MODEL"),
         instructions=AGENT_INSTRUCTIONS,
@@ -162,7 +175,10 @@ def run_agent(user_input: str) -> str:
         ]
 
         if not tool_calls:
-            return response.output_text
+            return AgentRunResult(
+                text=response.output_text,
+                discovered_event_ids=discovered_event_ids,
+            )
 
         outputs = []
 
@@ -176,6 +192,13 @@ def run_agent(user_input: str) -> str:
                     "message": str(exception),
                 }
             else:
+                if tool_call.name == "search_events" and isinstance(result, list):
+                    result = filter_unseen_events(
+                        result,
+                        seen_event_ids | discovered_event_ids,
+                    )
+                    discovered_event_ids.update(event.id for event in result)
+
                 if isinstance(result, list):
                     result = [
                         asdict(item) if is_dataclass(item) else item
@@ -205,4 +228,4 @@ if __name__ == "__main__":
     result = run_agent(
         "Co ciekawego w Tychach, Katowicach i Gliwicach przez najbliższe 30 dni?"
     )
-    print(result)
+    print(result.text)

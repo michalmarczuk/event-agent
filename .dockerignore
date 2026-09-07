@@ -1,0 +1,11 @@
+.env
+.venv/
+.event-agent-venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.git/
+.github/
+.vscode/
+tests/
