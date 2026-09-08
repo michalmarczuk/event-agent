@@ -58,6 +58,9 @@ The local `.env` must define the required variables below. Never commit secret v
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `MODEL`
+- `EVENT_BASE_LOCATION_NAME`
+- `EVENT_BASE_GEOPOINT`
+- `EVENT_SEARCH_RADIUS_KM`
 
 ## Testing
 

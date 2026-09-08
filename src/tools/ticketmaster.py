@@ -4,19 +4,22 @@ import logging
 import requests
 
 try:
+    from ..config import SearchLocation
     from ..models import Event, EventDetails
 except ImportError:  # pragma: no cover - supports script execution
+    from config import SearchLocation
     from models import Event, EventDetails
 
 logger = logging.getLogger(__name__)
 
 
 class TicketmasterClient:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, location: SearchLocation):
         self.api_key = api_key
+        self.location = location
 
-    def search_events(self, city: str, days_ahead: int) -> list[Event]:
-        logger.info("Searching Ticketmaster events city=%s", city)
+    def search_events(self, days_ahead: int) -> list[Event]:
+        logger.info("Searching Ticketmaster events near %s", self.location.name)
 
         url = "https://app.ticketmaster.com/discovery/v2/events.json"
         start_datetime = datetime.now(timezone.utc)
@@ -24,8 +27,11 @@ class TicketmasterClient:
 
         params = {
             "apikey": self.api_key,
-            "city": city,
+            "geoPoint": self.location.geo_point,
+            "radius": self.location.radius_km,
+            "unit": "km",
             "countryCode": "PL",
+            "classificationName": "-sports",
             "size": 10,
             "sort": "date,asc",
             "startDateTime": start_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -39,17 +45,23 @@ class TicketmasterClient:
         events = data.get("_embedded", {}).get("events", [])
 
         return [
-            Event(
-                id=event["id"],
-                name=event["name"],
-                date=event.get("dates", {}).get("start", {}).get("localDate"),
-                city=city,
-                venue=None,
-                url=event.get("url"),
-                source="ticketmaster",
-            )
+            self._event_from_response(event)
             for event in events
         ]
+
+    def _event_from_response(self, event: dict) -> Event:
+        venues = event.get("_embedded", {}).get("venues", [])
+        venue = venues[0] if venues else {}
+
+        return Event(
+            id=event["id"],
+            name=event["name"],
+            date=event.get("dates", {}).get("start", {}).get("localDate"),
+            city=venue.get("city", {}).get("name"),
+            venue=None,
+            url=event.get("url"),
+            source="ticketmaster",
+        )
 
     def get_event_details(self, event_id: str) -> EventDetails:
         logger.info("Fetching Ticketmaster event details event_id=%s", event_id)

@@ -7,20 +7,16 @@ _TOOL_DEFINITIONS = [
     {
         "type": "function",
         "name": "search_events",
-        "description": "Znajduje wydarzenia w podanym mieście.",
+        "description": "Znajduje wydarzenia w pobliżu skonfigurowanej lokalizacji.",
         "parameters": {
             "type": "object",
             "properties": {
-                "city": {
-                    "type": "string",
-                    "description": "Miasto, np. Tychy",
-                },
                 "days_ahead": {
                     "type": "integer",
                     "description": "Liczba dni do przodu od bieżącego czasu.",
                 }
             },
-            "required": ["city", "days_ahead"],
+            "required": ["days_ahead"],
             "additionalProperties": False,
         },
         "strict": True,

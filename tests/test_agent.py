@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import src.agent as agent
-from src.config import Settings
+from src.config import SearchLocation, Settings
 from src.models import Event
 
 from src.tools.registry import execute_tool
@@ -15,6 +15,7 @@ TEST_SETTINGS = Settings(
     telegram_bot_token="telegram-test-token",
     telegram_chat_id="telegram-test-chat",
     model="test-model",
+    search_location=SearchLocation("Tychy", "u2y0test", 50),
 )
 
 
@@ -43,7 +44,7 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
             SimpleNamespace(
                 type="function_call",
                 name="search_events",
-                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                arguments=json.dumps({"days_ahead": 30}),
                 call_id="call-1",
             )
         ],
@@ -73,7 +74,7 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
     execute_tool_mock.assert_called_once()
     assert execute_tool_mock.call_args.args[1:] == (
         "search_events",
-        {"city": "Tychy", "days_ahead": 30},
+        {"days_ahead": 30},
     )
     assert create.call_count == 2
     assert result.text == "Found events in Tychy"
@@ -87,7 +88,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
             SimpleNamespace(
                 type="function_call",
                 name="search_events",
-                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                arguments=json.dumps({"days_ahead": 30}),
                 call_id="call-1",
             )
         ],
@@ -136,7 +137,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
             SimpleNamespace(
                 type="function_call",
                 name="search_events",
-                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                arguments=json.dumps({"days_ahead": 30}),
                 call_id="call-1",
             )
         ],
@@ -147,7 +148,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
             SimpleNamespace(
                 type="function_call",
                 name="search_events",
-                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                arguments=json.dumps({"days_ahead": 30}),
                 call_id="call-2",
             )
         ],

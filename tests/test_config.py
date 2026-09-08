@@ -1,4 +1,5 @@
 import src.config as config
+from src.config import SearchLocation
 
 
 def test_load_settings_returns_all_environment_values(monkeypatch):
@@ -8,6 +9,9 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
         "TELEGRAM_BOT_TOKEN": "telegram-test-token",
         "TELEGRAM_CHAT_ID": "telegram-test-chat",
         "MODEL": "test-model",
+        "EVENT_BASE_LOCATION_NAME": "Tychy",
+        "EVENT_BASE_GEOPOINT": "u2y0test",
+        "EVENT_SEARCH_RADIUS_KM": "50",
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -20,6 +24,7 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
     assert settings.telegram_bot_token == "telegram-test-token"
     assert settings.telegram_chat_id == "telegram-test-chat"
     assert settings.model == "test-model"
+    assert settings.search_location == SearchLocation("Tychy", "u2y0test", 50)
 
 
 def test_load_settings_reports_one_missing_variable(monkeypatch):
@@ -29,6 +34,9 @@ def test_load_settings_reports_one_missing_variable(monkeypatch):
         "TELEGRAM_BOT_TOKEN": "telegram-test-token",
         "TELEGRAM_CHAT_ID": "telegram-test-chat",
         "MODEL": "test-model",
+        "EVENT_BASE_LOCATION_NAME": "Tychy",
+        "EVENT_BASE_GEOPOINT": "u2y0test",
+        "EVENT_SEARCH_RADIUS_KM": "50",
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -57,5 +65,8 @@ def test_load_settings_reports_multiple_missing_variables(monkeypatch):
         assert "TELEGRAM_BOT_TOKEN" in message
         assert "TELEGRAM_CHAT_ID" in message
         assert "MODEL" in message
+        assert "EVENT_BASE_LOCATION_NAME" in message
+        assert "EVENT_BASE_GEOPOINT" in message
+        assert "EVENT_SEARCH_RADIUS_KM" in message
     else:
         raise AssertionError("load_settings() should reject missing variables")

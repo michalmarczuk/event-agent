@@ -60,7 +60,7 @@ Hugging Face Scheduled Job
 
 ## Agent Loop
 
-1. `run_agent()` loads `Settings`, creates a `TicketmasterClient`, creates tool handlers and definitions, and sends the initial user request to the OpenAI Responses API.
+1. `run_agent()` loads `Settings`, creates a `TicketmasterClient` with the configured `SearchLocation`, creates tool handlers and definitions, and sends the initial user request to the OpenAI Responses API.
 2. The response is inspected for `function_call` items.
 3. Each call's JSON arguments are parsed and dispatched through the tool registry.
 4. `search_events` results are filtered and serialized. Tool failures become error payloads returned to the model.
@@ -69,6 +69,8 @@ Hugging Face Scheduled Job
 7. `run_agent()` returns `AgentRunResult`, containing the final text and newly discovered event IDs.
 
 ## Event Deduplication
+
+`search_events` queries Ticketmaster around the configured base location using its `geoPoint` and radius. The base location is configuration, not an LLM tool argument.
 
 `seen_event_ids` contains IDs loaded from previous scheduled runs. It prevents events already delivered in an earlier run from being sent again.
 
@@ -82,7 +84,7 @@ This prevents duplicates both across scheduled runs and between multiple searche
 
 ## Configuration Flow
 
-`config.load_settings()` calls `load_dotenv()` and reads the required environment variables into `Settings`. Runtime secrets are injected by the execution environment. The agent passes only the relevant Ticketmaster API key to `TicketmasterClient`; configuration values are not LLM tool arguments.
+`config.load_settings()` calls `load_dotenv()` and reads the required environment variables into `Settings`, including a `SearchLocation` with the base location name, Ticketmaster geohash, and search radius. Runtime secrets are injected by the execution environment. The agent passes the Ticketmaster API key and location configuration to `TicketmasterClient`; location configuration values are not LLM tool arguments.
 
 No secrets are copied into or stored in the Docker image.
 

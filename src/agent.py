@@ -28,8 +28,25 @@ Your job is to find interesting events for the user.
 Use available tools when you need real event data.
 Never invent events.
 Prefer upcoming events.
+The search_events tool searches for events around the user's configured home location.
+
+Prefer:
+- live music and concerts
+- local cultural events
+- unusual, distinctive, or niche events
+- festivals
+- interesting city or community events
+- events worth travelling a short distance for
+
+Avoid recommending:
+- sports
+- generic mass events unless they are genuinely distinctive
+- repetitive versions of very similar events
+
 When comparing multiple events, select the most interesting ones
-and briefly explain why.
+Prioritize uniqueness and local interest.
+Prefer variety in the final recommendations.
+Briefly explain why each selected event may be interesting.
 """
 
 logger = logging.getLogger(__name__)
@@ -94,8 +111,7 @@ def _execute_tool_call(
             seen_event_ids | discovered_event_ids,
         )
         logger.info(
-            "search_events city=%s returned=%d unseen=%d",
-            arguments["city"],
+            "search_events returned=%d unseen=%d",
             returned_count,
             len(result),
         )
@@ -126,7 +142,10 @@ def run_agent(
 ) -> AgentRunResult:
     """Run the agent conversation and return its text and new event IDs."""
     settings = load_settings()
-    ticketmaster_client = TicketmasterClient(settings.ticketmaster_api_key)
+    ticketmaster_client = TicketmasterClient(
+        settings.ticketmaster_api_key,
+        settings.search_location,
+    )
     tool_handlers = create_tool_handlers(ticketmaster_client)
     tool_definitions = get_tool_definitions()
     client = OpenAI(api_key=settings.openai_api_key)

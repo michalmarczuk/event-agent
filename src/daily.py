@@ -17,7 +17,7 @@ def main() -> None:
     logger.info("Loaded %d seen event IDs", len(seen_event_ids))
 
     result = run_agent(
-        "Co ciekawego w Tychach, Katowicach i Gliwicach przez najbliższe 30 dni?",
+        "Znajdź najciekawsze wydarzenia dla mnie na najbliższe 30 dni.",
         seen_event_ids=seen_event_ids,
     )
 

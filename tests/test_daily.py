@@ -8,12 +8,16 @@ def test_daily_saves_history_only_after_telegram_succeeds(monkeypatch):
     seen_ids = {"seen"}
     saved_ids = []
     telegram_checks = []
+    prompts = []
 
     fake_agent = SimpleNamespace(
-        run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
-            text="Found new events",
-            discovered_event_ids={"new"},
-        )
+        run_agent=lambda prompt, seen_event_ids: (
+            prompts.append(prompt)
+            or SimpleNamespace(
+                text="Found new events",
+                discovered_event_ids={"new"},
+            )
+        ),
     )
 
     def send_telegram_message(message):
@@ -34,3 +38,6 @@ def test_daily_saves_history_only_after_telegram_succeeds(monkeypatch):
 
     assert telegram_checks == [("Found new events", [])]
     assert saved_ids == [{"seen", "new"}]
+    assert prompts == [
+        "Znajdź najciekawsze wydarzenia dla mnie na najbliższe 30 dni."
+    ]

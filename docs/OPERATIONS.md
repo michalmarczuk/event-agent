@@ -18,6 +18,9 @@ TICKETMASTER_API_KEY=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 MODEL=
+EVENT_BASE_LOCATION_NAME=Tychy
+EVENT_BASE_GEOPOINT=<Tychy geohash>
+EVENT_SEARCH_RADIUS_KM=50
 ```
 
 Run tests and the daily application:
@@ -36,6 +39,9 @@ python src/daily.py
 - `TELEGRAM_BOT_TOKEN`: Telegram bot credential.
 - `TELEGRAM_CHAT_ID`: Telegram destination.
 - `MODEL`: OpenAI model name.
+- `EVENT_BASE_LOCATION_NAME`: Configured base location name, currently `Tychy`.
+- `EVENT_BASE_GEOPOINT`: Precomputed Ticketmaster geohash for the base location.
+- `EVENT_SEARCH_RADIUS_KM`: Ticketmaster search radius in kilometers, currently `50`.
 
 Use secret values only through the local `.env` file or the deployment environment. Never place real values in documentation, source code, Dockerfiles, or image layers.
 
@@ -85,6 +91,9 @@ Hugging Face Jobs is the production runtime and scheduler. A manual run uses the
 hf jobs run \
   --flavor cpu-basic \
   --env MODEL=YOUR_MODEL_NAME \
+  --env EVENT_BASE_LOCATION_NAME=Tychy \
+  --env EVENT_BASE_GEOPOINT=YOUR_TYCHY_GEOHASH \
+  --env EVENT_SEARCH_RADIUS_KM=50 \
   -s OPENAI_API_KEY \
   -s TICKETMASTER_API_KEY \
   -s TELEGRAM_BOT_TOKEN \
@@ -123,6 +132,9 @@ hf jobs scheduled run "15 8 * * *" \
   --name event-agent \
   --flavor cpu-basic \
   --env MODEL=YOUR_MODEL_NAME \
+  --env EVENT_BASE_LOCATION_NAME=Tychy \
+  --env EVENT_BASE_GEOPOINT=YOUR_TYCHY_GEOHASH \
+  --env EVENT_SEARCH_RADIUS_KM=50 \
   -s OPENAI_API_KEY \
   -s TICKETMASTER_API_KEY \
   -s TELEGRAM_BOT_TOKEN \

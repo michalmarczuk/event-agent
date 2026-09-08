@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from src.config import SearchLocation
 from src.models import Event, EventDetails
 from src.tools.ticketmaster import TicketmasterClient
 
@@ -17,6 +18,11 @@ def test_search_events_uses_api_key_and_parses_events():
                             "name": "Concert",
                             "dates": {"start": {"localDate": "2026-09-10"}},
                             "url": "https://example.test/event-1",
+                            "_embedded": {
+                                "venues": [
+                                    {"city": {"name": "Katowice"}},
+                                ]
+                            },
                         }
                     ]
                 }
@@ -26,16 +32,23 @@ def test_search_events_uses_api_key_and_parses_events():
     )()
 
     with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
-        events = TicketmasterClient("ticketmaster-test-key").search_events("Tychy", 30)
+        events = TicketmasterClient(
+            "ticketmaster-test-key",
+            SearchLocation("Tychy", "u2y0test", 50),
+        ).search_events(30)
 
     get.assert_called_once()
     assert get.call_args.kwargs["params"]["apikey"] == "ticketmaster-test-key"
+    assert get.call_args.kwargs["params"]["geoPoint"] == "u2y0test"
+    assert get.call_args.kwargs["params"]["radius"] == 50
+    assert get.call_args.kwargs["params"]["unit"] == "km"
+    assert get.call_args.kwargs["params"]["classificationName"] == "-sports"
     assert events == [
         Event(
             id="event-1",
             name="Concert",
             date="2026-09-10",
-            city="Tychy",
+            city="Katowice",
             venue=None,
             url="https://example.test/event-1",
             source="ticketmaster",
@@ -63,7 +76,10 @@ def test_get_event_details_uses_api_key_and_parses_event():
     )()
 
     with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
-        details = TicketmasterClient("ticketmaster-test-key").get_event_details("event-1")
+        details = TicketmasterClient(
+            "ticketmaster-test-key",
+            SearchLocation("Tychy", "u2y0test", 50),
+        ).get_event_details("event-1")
 
     get.assert_called_once_with(
         "https://app.ticketmaster.com/discovery/v2/events/event-1.json",
