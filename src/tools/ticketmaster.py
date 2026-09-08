@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 import requests
 
@@ -7,13 +8,15 @@ try:
 except ImportError:  # pragma: no cover - supports script execution
     from models import Event, EventDetails
 
+logger = logging.getLogger(__name__)
+
 
 class TicketmasterClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
 
     def search_events(self, city: str, days_ahead: int) -> list[Event]:
-        print(f"TOOL: szukam prawdziwych wydarzeń w: {city}")
+        logger.info("Searching Ticketmaster events city=%s", city)
 
         url = "https://app.ticketmaster.com/discovery/v2/events.json"
         start_datetime = datetime.now(timezone.utc)
@@ -49,7 +52,7 @@ class TicketmasterClient:
         ]
 
     def get_event_details(self, event_id: str) -> EventDetails:
-        print(f"TOOL: pobieram szczegóły wydarzenia: {event_id}")
+        logger.info("Fetching Ticketmaster event details event_id=%s", event_id)
 
         url = f"https://app.ticketmaster.com/discovery/v2/events/{event_id}.json"
         response = requests.get(

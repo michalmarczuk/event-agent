@@ -143,11 +143,23 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
     )
     second_response = SimpleNamespace(
         id="response-2",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name="search_events",
+                arguments=json.dumps({"city": "Tychy", "days_ahead": 30}),
+                call_id="call-2",
+            )
+        ],
+    )
+    third_response = SimpleNamespace(
+        id="response-3",
         output=[],
         output_text="Found new events in Tychy",
     )
     seen_event = Event("seen", "Already seen", None, None, None, None, "test")
     new_event = Event("new", "New event", None, None, None, None, "test")
+    latest_event = Event("latest", "Latest event", None, None, None, None, "test")
 
     with (
         patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
@@ -158,15 +170,18 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
         patch.object(
             agent,
             "execute_tool",
-            return_value=[seen_event, new_event],
+            side_effect=[
+                [seen_event, new_event],
+                [new_event, latest_event],
+            ],
         ),
     ):
         create = create_client.return_value.responses.create
-        create.side_effect = [first_response, second_response]
+        create.side_effect = [first_response, second_response, third_response]
         result = agent.run_agent("Find events in Tychy", {"seen"})
 
-    sent_outputs = create.call_args_list[1].kwargs["input"]
-    assert json.loads(sent_outputs[0]["output"]) == [
+    first_tool_outputs = create.call_args_list[1].kwargs["input"]
+    assert json.loads(first_tool_outputs[0]["output"]) == [
         {
             "id": "new",
             "name": "New event",
@@ -177,5 +192,20 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
             "source": "test",
         }
     ]
+    assert "seen" not in first_tool_outputs[0]["output"]
+
+    second_tool_outputs = create.call_args_list[2].kwargs["input"]
+    assert json.loads(second_tool_outputs[0]["output"]) == [
+        {
+            "id": "latest",
+            "name": "Latest event",
+            "date": None,
+            "city": None,
+            "venue": None,
+            "url": None,
+            "source": "test",
+        }
+    ]
+    assert "new" not in second_tool_outputs[0]["output"]
     assert result.text == "Found new events in Tychy"
-    assert result.discovered_event_ids == {"new"}
+    assert result.discovered_event_ids == {"new", "latest"}

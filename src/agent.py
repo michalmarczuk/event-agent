@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import asdict, dataclass, is_dataclass
 
 from openai import OpenAI
@@ -30,6 +31,8 @@ Prefer upcoming events.
 When comparing multiple events, select the most interesting ones
 and briefly explain why.
 """
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,15 +81,23 @@ def _execute_tool_call(
     try:
         result = execute_tool(tool_handlers, tool_call.name, arguments)
     except Exception as exception:
+        logger.warning("Tool execution failed tool=%s", tool_call.name)
         return {
             "error": True,
             "message": str(exception),
         }
 
     if tool_call.name == "search_events" and isinstance(result, list):
+        returned_count = len(result)
         result = filter_unseen_events(
             result,
             seen_event_ids | discovered_event_ids,
+        )
+        logger.info(
+            "search_events city=%s returned=%d unseen=%d",
+            arguments["city"],
+            returned_count,
+            len(result),
         )
         discovered_event_ids.update(event.id for event in result)
 
