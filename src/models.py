@@ -20,3 +20,15 @@ class EventDetails:
     venue: str | None
     city: str | None
     url: str | None
+
+
+@dataclass
+class Recommendation:
+    name: str
+    category: str
+    date: str | None
+    time: str | None
+    city: str | None
+    venue: str | None
+    reason: str
+    url: str | None

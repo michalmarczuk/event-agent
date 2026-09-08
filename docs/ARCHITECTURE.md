@@ -4,7 +4,7 @@
 
 The application is a scheduled Python event discovery agent. GitHub Actions runs tests, builds the Docker image, and publishes it to GHCR. A Hugging Face scheduled Job runs that image, with secrets injected at runtime and `/app/data` backed by a Hugging Face Storage Bucket.
 
-The container starts `src/daily.py`. The entry point loads event history, runs the agent through the OpenAI Responses API, allows the model to call Ticketmaster tools, prints and sends the final response to Telegram, then persists the updated event history.
+The container starts `src/daily.py`. The entry point loads event history, runs the agent through the OpenAI Responses API, allows the model to call Ticketmaster tools, parses structured recommendations, formats and sends the report to Telegram, then persists the updated event history.
 
 ```mermaid
 flowchart LR
@@ -66,7 +66,9 @@ Hugging Face Scheduled Job
 4. `search_events` results are filtered and serialized. Tool failures become error payloads returned to the model.
 5. Results are sent back as `function_call_output` items in a follow-up Responses API request.
 6. The loop repeats until the model response contains no function calls.
-7. `run_agent()` returns `AgentRunResult`, containing the final text and newly discovered event IDs.
+7. The final model response is structured JSON containing at most seven recommendations. `run_agent()` parses it into `Recommendation` objects and returns them with newly discovered event IDs.
+
+`daily.py` passes recommendations to `telegram_formatter.py`, which owns deterministic Telegram HTML formatting and HTML escaping. The model does not generate Telegram HTML or Markdown.
 
 ## Event Deduplication
 

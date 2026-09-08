@@ -17,7 +17,11 @@ def send_telegram_message(message: str) -> None:
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-            json={"chat_id": settings.telegram_chat_id, "text": message},
+            json={
+                "chat_id": settings.telegram_chat_id,
+                "text": message,
+                "parse_mode": "HTML",
+            },
             timeout=10,
         )
         response.raise_for_status()

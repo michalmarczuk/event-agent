@@ -13,11 +13,13 @@ try:
         get_tool_definitions,
     )
     from .tools.ticketmaster import TicketmasterClient
+    from .models import Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import load_settings
     from history import filter_unseen_events
     from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
     from tools.ticketmaster import TicketmasterClient
+    from models import Recommendation
 
 
 AGENT_INSTRUCTIONS = """
@@ -47,14 +49,70 @@ When comparing multiple events, select the most interesting ones
 Prioritize uniqueness and local interest.
 Prefer variety in the final recommendations.
 Briefly explain why each selected event may be interesting.
+Return only the requested JSON structure. Do not return HTML or Markdown.
 """
 
 logger = logging.getLogger(__name__)
 
+RECOMMENDATION_CATEGORIES = (
+    "music",
+    "culture",
+    "live_performance",
+    "art",
+    "local",
+    "unusual",
+)
+
+RESPONSE_FORMAT = {
+    "format": {
+        "type": "json_schema",
+        "name": "event_recommendations",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "recommendations": {
+                    "type": "array",
+                    "maxItems": 7,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "category": {
+                                "type": "string",
+                                "enum": list(RECOMMENDATION_CATEGORIES),
+                            },
+                            "date": {"type": ["string", "null"]},
+                            "time": {"type": ["string", "null"]},
+                            "city": {"type": ["string", "null"]},
+                            "venue": {"type": ["string", "null"]},
+                            "reason": {"type": "string"},
+                            "url": {"type": ["string", "null"]},
+                        },
+                        "required": [
+                            "name",
+                            "category",
+                            "date",
+                            "time",
+                            "city",
+                            "venue",
+                            "reason",
+                            "url",
+                        ],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["recommendations"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
+}
+
 
 @dataclass
 class AgentRunResult:
-    text: str
+    recommendations: list[Recommendation]
     discovered_event_ids: set[str]
 
 
@@ -78,6 +136,25 @@ def _serialize_tool_result(result):
     if is_dataclass(result):
         return asdict(result)
     return result
+
+
+def _parse_recommendations(output_text: str) -> list[Recommendation]:
+    payload = json.loads(output_text)
+    if not isinstance(payload, dict) or not isinstance(
+        payload.get("recommendations"), list
+    ):
+        raise ValueError("Agent response must contain a recommendations list")
+
+    recommendations = payload["recommendations"]
+    if len(recommendations) > 7:
+        raise ValueError("The agent returned more than 7 recommendations")
+
+    parsed = []
+    for recommendation in recommendations:
+        if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
+            raise ValueError("Agent response contains an unsupported category")
+        parsed.append(Recommendation(**recommendation))
+    return parsed
 
 
 def _build_function_call_output(tool_call, result):
@@ -133,6 +210,7 @@ def _continue_conversation(
         previous_response_id=response.id,
         input=outputs,
         tools=tool_definitions,
+        text=RESPONSE_FORMAT,
     )
 
 
@@ -157,6 +235,7 @@ def run_agent(
         instructions=AGENT_INSTRUCTIONS,
         input=user_input,
         tools=tool_definitions,
+        text=RESPONSE_FORMAT,
     )
 
     while tool_calls := _get_function_calls(response):
@@ -179,7 +258,7 @@ def run_agent(
         )
 
     return AgentRunResult(
-        text=response.output_text,
+        recommendations=_parse_recommendations(response.output_text),
         discovered_event_ids=discovered_event_ids,
     )
 
@@ -188,4 +267,4 @@ if __name__ == "__main__":
     result = run_agent(
         "Co ciekawego w Tychach, Katowicach i Gliwicach przez najbliższe 30 dni?"
     )
-    print(result.text)
+    print(json.dumps([asdict(recommendation) for recommendation in result.recommendations]))

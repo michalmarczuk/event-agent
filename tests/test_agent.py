@@ -2,6 +2,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import src.agent as agent
 from src.config import SearchLocation, Settings
 from src.models import Event
@@ -17,6 +19,48 @@ TEST_SETTINGS = Settings(
     model="test-model",
     search_location=SearchLocation("Tychy", "u2y0test", 50),
 )
+
+
+def test_parse_recommendations_returns_dataclasses():
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "name": "Concert",
+                        "category": "music",
+                        "date": "2026-09-10",
+                        "time": "19:00",
+                        "city": "Tychy",
+                        "venue": "Town Hall",
+                        "reason": "A local concert.",
+                        "url": "https://example.test/concert",
+                    }
+                ]
+            }
+        )
+    )
+
+    assert recommendations[0].name == "Concert"
+    assert recommendations[0].category == "music"
+
+
+def test_parse_recommendations_rejects_more_than_seven():
+    recommendation = {
+        "name": "Concert",
+        "category": "music",
+        "date": None,
+        "time": None,
+        "city": None,
+        "venue": None,
+        "reason": "A local concert.",
+        "url": None,
+    }
+
+    with pytest.raises(ValueError, match="more than 7"):
+        agent._parse_recommendations(
+            json.dumps({"recommendations": [recommendation] * 8})
+        )
 
 
 def test_execute_tool_dispatches_to_registered_tool():
@@ -52,7 +96,7 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
     second_response = SimpleNamespace(
         id="response-2",
         output=[],
-        output_text="Found events in Tychy",
+        output_text=json.dumps({"recommendations": []}),
     )
 
     with (
@@ -77,7 +121,8 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
         {"days_ahead": 30},
     )
     assert create.call_count == 2
-    assert result.text == "Found events in Tychy"
+    assert create.call_args_list[0].kwargs["text"] == agent.RESPONSE_FORMAT
+    assert result.recommendations == []
     assert result.discovered_event_ids == {"event-1"}
 
 
@@ -96,7 +141,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     second_response = SimpleNamespace(
         id="response-2",
         output=[],
-        output_text="I could not find events right now",
+        output_text=json.dumps({"recommendations": []}),
     )
 
     with (
@@ -126,7 +171,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
             ),
         }
     ]
-    assert result.text == "I could not find events right now"
+    assert result.recommendations == []
     assert result.discovered_event_ids == set()
 
 
@@ -156,7 +201,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
     third_response = SimpleNamespace(
         id="response-3",
         output=[],
-        output_text="Found new events in Tychy",
+        output_text=json.dumps({"recommendations": []}),
     )
     seen_event = Event("seen", "Already seen", None, None, None, None, "test")
     new_event = Event("new", "New event", None, None, None, None, "test")
@@ -208,5 +253,5 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
         }
     ]
     assert "new" not in second_tool_outputs[0]["output"]
-    assert result.text == "Found new events in Tychy"
+    assert result.recommendations == []
     assert result.discovered_event_ids == {"new", "latest"}

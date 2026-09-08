@@ -1,8 +1,10 @@
 import logging
 
 from agent import run_agent
+from config import load_settings
 from history import load_seen_event_ids, save_seen_event_ids
 from telegram_notifier import send_telegram_message
+from telegram_formatter import format_telegram_message
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +22,20 @@ def main() -> None:
         "Znajdź najciekawsze wydarzenia dla mnie na najbliższe 30 dni.",
         seen_event_ids=seen_event_ids,
     )
+    settings = load_settings()
+    formatted_message = format_telegram_message(
+        result.recommendations,
+        settings.search_location.name,
+        settings.search_location.radius_km,
+        30,
+    )
 
     logger.info(
         "Agent discovered %d event IDs",
         len(result.discovered_event_ids),
     )
-    print(result.text)
-    send_telegram_message(result.text)
+    print(formatted_message)
+    send_telegram_message(formatted_message)
     save_seen_event_ids(seen_event_ids | result.discovered_event_ids)
     logger.info(
         "Saved %d seen event IDs",
