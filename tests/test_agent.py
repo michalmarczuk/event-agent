@@ -27,6 +27,7 @@ def test_parse_recommendations_returns_dataclasses():
             {
                 "recommendations": [
                     {
+                        "event_id": "event-1",
                         "name": "Concert",
                         "category": "music",
                         "date": "2026-09-10",
@@ -38,7 +39,8 @@ def test_parse_recommendations_returns_dataclasses():
                     }
                 ]
             }
-        )
+        ),
+        {"event-1"},
     )
 
     assert recommendations[0].name == "Concert"
@@ -47,6 +49,7 @@ def test_parse_recommendations_returns_dataclasses():
 
 def test_parse_recommendations_rejects_more_than_seven():
     recommendation = {
+        "event_id": "event-1",
         "name": "Concert",
         "category": "music",
         "date": None,
@@ -59,7 +62,8 @@ def test_parse_recommendations_rejects_more_than_seven():
 
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
-            json.dumps({"recommendations": [recommendation] * 8})
+            json.dumps({"recommendations": [recommendation] * 8}),
+            {"event-1"},
         )
 
 
@@ -123,7 +127,7 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
     assert create.call_count == 2
     assert create.call_args_list[0].kwargs["text"] == agent.RESPONSE_FORMAT
     assert result.recommendations == []
-    assert result.discovered_event_ids == {"event-1"}
+    assert result.recommended_event_ids == set()
 
 
 def test_run_agent_returns_tool_error_to_model_and_continues():
@@ -172,7 +176,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
         }
     ]
     assert result.recommendations == []
-    assert result.discovered_event_ids == set()
+    assert result.recommended_event_ids == set()
 
 
 def test_run_agent_filters_seen_events_and_returns_new_ids():
@@ -254,4 +258,67 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
     ]
     assert "new" not in second_tool_outputs[0]["output"]
     assert result.recommendations == []
-    assert result.discovered_event_ids == {"new", "latest"}
+    assert result.recommended_event_ids == set()
+
+
+def test_run_agent_returns_only_recommended_event_ids():
+    first_response = SimpleNamespace(
+        id="response-1",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name="search_events",
+                arguments=json.dumps({"days_ahead": 30}),
+                call_id="call-1",
+            )
+        ],
+    )
+    second_response = SimpleNamespace(
+        id="response-2",
+        output=[],
+        output_text=json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "event_id": "event-1",
+                        "name": "First event",
+                        "category": "music",
+                        "date": None,
+                        "time": None,
+                        "city": "Tychy",
+                        "venue": None,
+                        "reason": "A strong local pick.",
+                        "url": None,
+                    },
+                    {
+                        "event_id": "event-2",
+                        "name": "Second event",
+                        "category": "culture",
+                        "date": None,
+                        "time": None,
+                        "city": "Tychy",
+                        "venue": None,
+                        "reason": "A distinctive cultural event.",
+                        "url": None,
+                    },
+                ]
+            }
+        ),
+    )
+    events = [
+        Event("event-1", "First event", None, "Tychy", None, None, "test"),
+        Event("event-2", "Second event", None, "Tychy", None, None, "test"),
+        Event("event-3", "Third event", None, "Tychy", None, None, "test"),
+    ]
+
+    with (
+        patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
+        patch.object(agent, "OpenAI") as create_client,
+        patch.object(agent, "execute_tool", return_value=events),
+    ):
+        create = create_client.return_value.responses.create
+        create.side_effect = [first_response, second_response]
+        result = agent.run_agent("Find events", set())
+
+    assert result.recommended_event_ids == {"event-1", "event-2"}
+    assert not hasattr(result, "discovered_event_ids")

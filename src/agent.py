@@ -76,6 +76,7 @@ RESPONSE_FORMAT = {
                     "items": {
                         "type": "object",
                         "properties": {
+                            "event_id": {"type": "string"},
                             "name": {"type": "string"},
                             "category": {
                                 "type": "string",
@@ -89,6 +90,7 @@ RESPONSE_FORMAT = {
                             "url": {"type": ["string", "null"]},
                         },
                         "required": [
+                            "event_id",
                             "name",
                             "category",
                             "date",
@@ -113,7 +115,7 @@ RESPONSE_FORMAT = {
 @dataclass
 class AgentRunResult:
     recommendations: list[Recommendation]
-    discovered_event_ids: set[str]
+    recommended_event_ids: set[str]
 
 
 def _get_function_calls(response):
@@ -138,7 +140,10 @@ def _serialize_tool_result(result):
     return result
 
 
-def _parse_recommendations(output_text: str) -> list[Recommendation]:
+def _parse_recommendations(
+    output_text: str,
+    discovered_event_ids: set[str],
+) -> list[Recommendation]:
     payload = json.loads(output_text)
     if not isinstance(payload, dict) or not isinstance(
         payload.get("recommendations"), list
@@ -151,6 +156,8 @@ def _parse_recommendations(output_text: str) -> list[Recommendation]:
 
     parsed = []
     for recommendation in recommendations:
+        if recommendation.get("event_id") not in discovered_event_ids:
+            raise ValueError("Agent response contains an unknown event ID")
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
         parsed.append(Recommendation(**recommendation))
@@ -193,6 +200,8 @@ def _execute_tool_call(
             len(result),
         )
         discovered_event_ids.update(event.id for event in result)
+    elif tool_call.name == "get_event_details":
+        discovered_event_ids.add(arguments["event_id"])
 
     return _serialize_tool_result(result)
 
@@ -257,9 +266,13 @@ def run_agent(
             tool_definitions,
         )
 
+    recommendations = _parse_recommendations(
+        response.output_text,
+        discovered_event_ids,
+    )
     return AgentRunResult(
-        recommendations=_parse_recommendations(response.output_text),
-        discovered_event_ids=discovered_event_ids,
+        recommendations=recommendations,
+        recommended_event_ids={recommendation.event_id for recommendation in recommendations},
     )
 
 

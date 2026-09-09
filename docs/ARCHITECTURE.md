@@ -66,7 +66,7 @@ Hugging Face Scheduled Job
 4. `search_events` results are filtered and serialized. Tool failures become error payloads returned to the model.
 5. Results are sent back as `function_call_output` items in a follow-up Responses API request.
 6. The loop repeats until the model response contains no function calls.
-7. The final model response is structured JSON containing at most seven recommendations. `run_agent()` parses it into `Recommendation` objects and returns them with newly discovered event IDs.
+7. The final model response is structured JSON containing at most seven recommendations. Each recommendation includes an event ID from tool results. `run_agent()` parses it into `Recommendation` objects and returns only the recommended event IDs for persistence; discovered IDs remain internal to the run.
 
 `daily.py` passes recommendations to `telegram_formatter.py`, which owns deterministic Telegram HTML formatting and HTML escaping. The model does not generate Telegram HTML or Markdown.
 
@@ -82,7 +82,7 @@ Hugging Face Scheduled Job
 seen_event_ids | discovered_event_ids
 ```
 
-This prevents duplicates both across scheduled runs and between multiple searches in the same run. Only remaining events are sent to the model, and their IDs are added to `discovered_event_ids`. `get_event_details` results are not filtered.
+This prevents duplicates both across scheduled runs and between multiple searches in the same run. Only remaining events are sent to the model, and their IDs are added to the internal `discovered_event_ids` set. The model's selected recommendation IDs are exposed as `recommended_event_ids` and are the only IDs persisted. `get_event_details` results are not filtered.
 
 ## Configuration Flow
 

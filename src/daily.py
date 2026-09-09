@@ -31,15 +31,15 @@ def main() -> None:
     )
 
     logger.info(
-        "Agent discovered %d event IDs",
-        len(result.discovered_event_ids),
+        "Agent recommended %d event IDs",
+        len(result.recommended_event_ids),
     )
     print(formatted_message)
     send_telegram_message(formatted_message)
-    save_seen_event_ids(seen_event_ids | result.discovered_event_ids)
+    save_seen_event_ids(seen_event_ids | result.recommended_event_ids)
     logger.info(
         "Saved %d seen event IDs",
-        len(seen_event_ids | result.discovered_event_ids),
+        len(seen_event_ids | result.recommended_event_ids),
     )
 
 

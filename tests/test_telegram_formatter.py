@@ -4,6 +4,7 @@ from src.telegram_formatter import format_telegram_message
 
 def recommendation(category="music", **overrides):
     values = {
+        "event_id": "event-1",
         "name": "Summer Concert",
         "category": category,
         "date": "2026-09-10",
