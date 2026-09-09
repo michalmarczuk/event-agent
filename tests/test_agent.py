@@ -7,6 +7,7 @@ import pytest
 import src.agent as agent
 from src.config import SearchLocation, Settings
 from src.models import Admission, Event
+from src.telegram_formatter import format_telegram_message
 
 from src.tools.registry import execute_tool
 
@@ -36,7 +37,6 @@ def test_parse_recommendations_returns_dataclasses():
                         "venue": "Town Hall",
                         "reason": "A local concert.",
                         "url": "https://example.test/concert",
-                        "admission": None,
                     }
                 ]
             }
@@ -48,7 +48,15 @@ def test_parse_recommendations_returns_dataclasses():
     assert recommendations[0].category == "music"
 
 
-def test_parse_recommendations_converts_admission_to_dataclass():
+@pytest.mark.parametrize(
+    ("admission", "expected"),
+    [
+        (Admission(False, 40, 40, "PLN"), Admission(False, 40, 40, "PLN")),
+        (Admission(False, 40, 60, "PLN"), Admission(False, 40, 60, "PLN")),
+        (None, None),
+    ],
+)
+def test_parse_recommendations_uses_source_admission(admission, expected):
     recommendations = agent._parse_recommendations(
         json.dumps(
             {
@@ -63,13 +71,6 @@ def test_parse_recommendations_converts_admission_to_dataclass():
                         "venue": None,
                         "reason": "A local concert.",
                         "url": None,
-                        "admission": {
-                            "is_free": False,
-                            "price_min": 40,
-                            "price_max": 60,
-                            "currency": "PLN",
-                            "note": None,
-                        },
                     }
                 ]
             }
@@ -84,13 +85,51 @@ def test_parse_recommendations_converts_admission_to_dataclass():
                 None,
                 None,
                 "test",
-                Admission(False, 40, 60, "PLN"),
+                admission,
             )
         },
     )
 
-    assert recommendations[0].admission == Admission(False, 40, 60, "PLN")
-    assert isinstance(recommendations[0].admission, Admission)
+    assert recommendations[0].admission == expected
+
+
+def test_parse_recommendations_formats_source_admission():
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "event_id": "event-1",
+                        "name": "Concert",
+                        "category": "music",
+                        "date": None,
+                        "time": None,
+                        "city": None,
+                        "venue": None,
+                        "reason": "A local concert.",
+                        "url": None,
+                    }
+                ]
+            }
+        ),
+        {"event-1"},
+        {
+            "event-1": Event(
+                "event-1",
+                "Concert",
+                None,
+                None,
+                None,
+                None,
+                "test",
+                Admission(False, 40, 40, "PLN"),
+            )
+        },
+    )
+
+    message = format_telegram_message(recommendations, "Tychy", 50, 30)
+
+    assert "🎟 40 zł" in message
 
 
 def test_parse_recommendations_rejects_more_than_seven():
@@ -104,52 +143,12 @@ def test_parse_recommendations_rejects_more_than_seven():
         "venue": None,
         "reason": "A local concert.",
         "url": None,
-        "admission": None,
     }
 
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
             {"event-1"},
-        )
-
-
-def test_parse_recommendations_rejects_invented_admission():
-    recommendation = {
-        "event_id": "event-1",
-        "name": "Concert",
-        "category": "music",
-        "date": None,
-        "time": None,
-        "city": None,
-        "venue": None,
-        "reason": "A local concert.",
-        "url": None,
-        "admission": {
-            "is_free": False,
-            "price_min": 40,
-            "price_max": 40,
-            "currency": "PLN",
-            "note": None,
-        },
-    }
-
-    with pytest.raises(ValueError, match="unsupported admission"):
-        agent._parse_recommendations(
-            json.dumps({"recommendations": [recommendation]}),
-            {"event-1"},
-            {
-                "event-1": Event(
-                    "event-1",
-                    "Concert",
-                    None,
-                    None,
-                    None,
-                    None,
-                    "test",
-                    Admission(is_free=None),
-                )
-            },
         )
 
 
@@ -377,7 +376,6 @@ def test_run_agent_returns_only_recommended_event_ids():
                         "venue": None,
                         "reason": "A strong local pick.",
                         "url": None,
-                        "admission": None,
                     },
                     {
                         "event_id": "event-2",
@@ -389,7 +387,6 @@ def test_run_agent_returns_only_recommended_event_ids():
                         "venue": None,
                         "reason": "A distinctive cultural event.",
                         "url": None,
-                        "admission": None,
                     },
                 ]
             }
