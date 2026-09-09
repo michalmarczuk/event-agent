@@ -13,13 +13,13 @@ try:
         get_tool_definitions,
     )
     from .tools.ticketmaster import TicketmasterClient
-    from .models import Recommendation
+    from .models import Admission, Event, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import load_settings
     from history import filter_unseen_events
     from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
     from tools.ticketmaster import TicketmasterClient
-    from models import Recommendation
+    from models import Admission, Event, Recommendation
 
 
 AGENT_INSTRUCTIONS = """
@@ -88,6 +88,24 @@ RESPONSE_FORMAT = {
                             "venue": {"type": ["string", "null"]},
                             "reason": {"type": "string"},
                             "url": {"type": ["string", "null"]},
+                            "admission": {
+                                "type": ["object", "null"],
+                                "properties": {
+                                    "is_free": {"type": ["boolean", "null"]},
+                                    "price_min": {"type": ["number", "null"]},
+                                    "price_max": {"type": ["number", "null"]},
+                                    "currency": {"type": ["string", "null"]},
+                                    "note": {"type": ["string", "null"]},
+                                },
+                                "required": [
+                                    "is_free",
+                                    "price_min",
+                                    "price_max",
+                                    "currency",
+                                    "note",
+                                ],
+                                "additionalProperties": False,
+                            },
                         },
                         "required": [
                             "event_id",
@@ -99,6 +117,7 @@ RESPONSE_FORMAT = {
                             "venue",
                             "reason",
                             "url",
+                            "admission",
                         ],
                         "additionalProperties": False,
                     },
@@ -129,6 +148,15 @@ def _parse_tool_arguments(tool_call):
     return json.loads(tool_call.arguments)
 
 
+def _parse_admission(value: dict | None) -> Admission | None:
+    if value is None:
+        return None
+    try:
+        return Admission(**value)
+    except TypeError as error:
+        raise ValueError("Agent response contains invalid admission data") from error
+
+
 def _serialize_tool_result(result):
     if isinstance(result, list):
         return [
@@ -143,7 +171,9 @@ def _serialize_tool_result(result):
 def _parse_recommendations(
     output_text: str,
     discovered_event_ids: set[str],
+    discovered_events: dict[str, Event] | None = None,
 ) -> list[Recommendation]:
+    discovered_events = discovered_events or {}
     payload = json.loads(output_text)
     if not isinstance(payload, dict) or not isinstance(
         payload.get("recommendations"), list
@@ -160,7 +190,14 @@ def _parse_recommendations(
             raise ValueError("Agent response contains an unknown event ID")
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
-        parsed.append(Recommendation(**recommendation))
+        admission = _parse_admission(recommendation.get("admission"))
+        source_event = discovered_events.get(recommendation["event_id"])
+        source_admission = source_event.admission if source_event else None
+        if admission is not None and admission != source_admission:
+            raise ValueError("Agent response contains unsupported admission data")
+        parsed.append(
+            Recommendation(**{**recommendation, "admission": admission})
+        )
     return parsed
 
 
@@ -177,6 +214,7 @@ def _execute_tool_call(
     tool_call,
     seen_event_ids,
     discovered_event_ids,
+    discovered_events,
 ):
     arguments = _parse_tool_arguments(tool_call)
     try:
@@ -200,6 +238,7 @@ def _execute_tool_call(
             len(result),
         )
         discovered_event_ids.update(event.id for event in result)
+        discovered_events.update({event.id: event for event in result})
     elif tool_call.name == "get_event_details":
         discovered_event_ids.add(arguments["event_id"])
 
@@ -238,6 +277,7 @@ def run_agent(
     client = OpenAI(api_key=settings.openai_api_key)
     seen_event_ids = set(seen_event_ids or set())
     discovered_event_ids = set()
+    discovered_events = {}
 
     response = client.responses.create(
         model=settings.model,
@@ -255,6 +295,7 @@ def run_agent(
                 tool_call,
                 seen_event_ids,
                 discovered_event_ids,
+                discovered_events,
             )
             outputs.append(_build_function_call_output(tool_call, result))
 
@@ -269,6 +310,7 @@ def run_agent(
     recommendations = _parse_recommendations(
         response.output_text,
         discovered_event_ids,
+        discovered_events,
     )
     return AgentRunResult(
         recommendations=recommendations,

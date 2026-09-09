@@ -5,10 +5,10 @@ import requests
 
 try:
     from ..config import SearchLocation
-    from ..models import Event, EventDetails
+    from ..models import Admission, Event, EventDetails
 except ImportError:  # pragma: no cover - supports script execution
     from config import SearchLocation
-    from models import Event, EventDetails
+    from models import Admission, Event, EventDetails
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,28 @@ class TicketmasterClient:
             venue=None,
             url=event.get("url"),
             source="ticketmaster",
+            admission=self._admission_from_response(event),
         )
+
+    @staticmethod
+    def _admission_from_response(event: dict) -> Admission | None:
+        for price_range in event.get("priceRanges", []):
+            if not isinstance(price_range, dict):
+                continue
+            price_min = price_range.get("min")
+            price_max = price_range.get("max")
+            if not isinstance(price_min, (int, float)) or isinstance(price_min, bool):
+                continue
+            if not isinstance(price_max, (int, float)) or isinstance(price_max, bool):
+                continue
+            return Admission(
+                is_free=False,
+                price_min=price_min,
+                price_max=price_max,
+                currency=price_range.get("currency"),
+                note=None,
+            )
+        return None
 
     def get_event_details(self, event_id: str) -> EventDetails:
         logger.info("Fetching Ticketmaster event details event_id=%s", event_id)

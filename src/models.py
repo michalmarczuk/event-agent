@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 
 
+@dataclass(frozen=True)
+class Admission:
+    is_free: bool | None
+    price_min: float | None = None
+    price_max: float | None = None
+    currency: str | None = None
+    note: str | None = None
+
+
 @dataclass
 class Event:
     id: str
@@ -10,6 +19,7 @@ class Event:
     venue: str | None
     url: str | None
     source: str
+    admission: Admission | None = None
 
 
 @dataclass
@@ -33,3 +43,4 @@ class Recommendation:
     venue: str | None
     reason: str
     url: str | None
+    admission: Admission | None = None

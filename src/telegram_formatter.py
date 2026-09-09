@@ -1,9 +1,9 @@
 import html
 
 try:
-    from .models import Recommendation
+    from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
-    from models import Recommendation
+    from models import Admission, Recommendation
 
 
 _CATEGORY_EMOJIS = {
@@ -28,6 +28,30 @@ def _format_location(recommendation: Recommendation) -> str | None:
 def _format_datetime(recommendation: Recommendation) -> str | None:
     parts = [part for part in (recommendation.date, recommendation.time) if part]
     return " · ".join(_escape(part) for part in parts) or None
+
+
+def _format_price(value: float) -> str:
+    return str(int(value)) if value == int(value) else str(value)
+
+
+def _format_admission(admission: Admission | None) -> str | None:
+    if admission is None:
+        return None
+
+    if admission.is_free is True:
+        text = "Wstęp wolny"
+        if admission.note:
+            text += f" · {_escape(admission.note)}"
+        return text
+
+    if admission.price_min is None or admission.price_max is None:
+        return None
+
+    currency = "zł" if admission.currency == "PLN" else admission.currency
+    suffix = f" {currency}" if currency else ""
+    if admission.price_min == admission.price_max:
+        return f"{_format_price(admission.price_min)}{suffix}"
+    return f"{_format_price(admission.price_min)}–{_format_price(admission.price_max)}{suffix}"
 
 
 def format_telegram_message(
@@ -55,6 +79,10 @@ def format_telegram_message(
         location = _format_location(recommendation)
         if location:
             lines.append(f"📍 {location}")
+
+        admission = _format_admission(recommendation.admission)
+        if admission:
+            lines.append(f"🎟 {admission}")
 
         lines.append(f"💡 {_escape(recommendation.reason)}")
 

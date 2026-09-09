@@ -6,7 +6,7 @@ import pytest
 
 import src.agent as agent
 from src.config import SearchLocation, Settings
-from src.models import Event
+from src.models import Admission, Event
 
 from src.tools.registry import execute_tool
 
@@ -36,6 +36,7 @@ def test_parse_recommendations_returns_dataclasses():
                         "venue": "Town Hall",
                         "reason": "A local concert.",
                         "url": "https://example.test/concert",
+                        "admission": None,
                     }
                 ]
             }
@@ -45,6 +46,51 @@ def test_parse_recommendations_returns_dataclasses():
 
     assert recommendations[0].name == "Concert"
     assert recommendations[0].category == "music"
+
+
+def test_parse_recommendations_converts_admission_to_dataclass():
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    {
+                        "event_id": "event-1",
+                        "name": "Concert",
+                        "category": "music",
+                        "date": None,
+                        "time": None,
+                        "city": None,
+                        "venue": None,
+                        "reason": "A local concert.",
+                        "url": None,
+                        "admission": {
+                            "is_free": False,
+                            "price_min": 40,
+                            "price_max": 60,
+                            "currency": "PLN",
+                            "note": None,
+                        },
+                    }
+                ]
+            }
+        ),
+        {"event-1"},
+        {
+            "event-1": Event(
+                "event-1",
+                "Concert",
+                None,
+                None,
+                None,
+                None,
+                "test",
+                Admission(False, 40, 60, "PLN"),
+            )
+        },
+    )
+
+    assert recommendations[0].admission == Admission(False, 40, 60, "PLN")
+    assert isinstance(recommendations[0].admission, Admission)
 
 
 def test_parse_recommendations_rejects_more_than_seven():
@@ -58,12 +104,52 @@ def test_parse_recommendations_rejects_more_than_seven():
         "venue": None,
         "reason": "A local concert.",
         "url": None,
+        "admission": None,
     }
 
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
             {"event-1"},
+        )
+
+
+def test_parse_recommendations_rejects_invented_admission():
+    recommendation = {
+        "event_id": "event-1",
+        "name": "Concert",
+        "category": "music",
+        "date": None,
+        "time": None,
+        "city": None,
+        "venue": None,
+        "reason": "A local concert.",
+        "url": None,
+        "admission": {
+            "is_free": False,
+            "price_min": 40,
+            "price_max": 40,
+            "currency": "PLN",
+            "note": None,
+        },
+    }
+
+    with pytest.raises(ValueError, match="unsupported admission"):
+        agent._parse_recommendations(
+            json.dumps({"recommendations": [recommendation]}),
+            {"event-1"},
+            {
+                "event-1": Event(
+                    "event-1",
+                    "Concert",
+                    None,
+                    None,
+                    None,
+                    None,
+                    "test",
+                    Admission(is_free=None),
+                )
+            },
         )
 
 
@@ -240,6 +326,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
             "venue": None,
             "url": None,
             "source": "test",
+            "admission": None,
         }
     ]
     assert "seen" not in first_tool_outputs[0]["output"]
@@ -254,6 +341,7 @@ def test_run_agent_filters_seen_events_and_returns_new_ids():
             "venue": None,
             "url": None,
             "source": "test",
+            "admission": None,
         }
     ]
     assert "new" not in second_tool_outputs[0]["output"]
@@ -289,6 +377,7 @@ def test_run_agent_returns_only_recommended_event_ids():
                         "venue": None,
                         "reason": "A strong local pick.",
                         "url": None,
+                        "admission": None,
                     },
                     {
                         "event_id": "event-2",
@@ -300,6 +389,7 @@ def test_run_agent_returns_only_recommended_event_ids():
                         "venue": None,
                         "reason": "A distinctive cultural event.",
                         "url": None,
+                        "admission": None,
                     },
                 ]
             }
