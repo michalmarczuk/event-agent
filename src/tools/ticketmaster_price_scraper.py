@@ -12,28 +12,45 @@ except ImportError:  # pragma: no cover - supports script execution
 
 logger = logging.getLogger(__name__)
 
+_ENGLISH_TICKET_SECTION_LABELS = ("Search For Tickets",)
+_POLISH_TICKET_SECTION_LABELS = ("Wyszukaj bilety", "Bilety")
+_ENGLISH_BEST_AVAILABLE_LABELS = ("See best available",)
+_POLISH_BEST_AVAILABLE_LABELS = ("Wybierz najlepsze dostępne miejsca",)
+
+
+def _label_pattern(
+    labels: tuple[str, ...],
+    whole_word_labels: tuple[str, ...] = (),
+) -> re.Pattern[str]:
+    alternatives = []
+    for label in labels:
+        expression = r"\s+".join(re.escape(word) for word in label.split())
+        if label in whole_word_labels:
+            expression = rf"\b{expression}\b"
+        alternatives.append(expression)
+    return re.compile(rf"(?:{'|'.join(alternatives)})", re.IGNORECASE)
+
+
 _PRICE_PATTERN = re.compile(
     r"(?:PLN\s*(\d+(?:[.,]\d{1,2})?)|"
     r"(\d+(?:[.,]\d{1,2})?)\s*(?:PLN|zł))",
     re.IGNORECASE,
 )
-_TICKET_SECTION_NAME = re.compile(
-    r"(?:search\s+for\s+tickets|wyszukaj\s+bilety|\bbilety\b)",
-    re.IGNORECASE,
+_TICKET_SECTION_NAME = _label_pattern(
+    _ENGLISH_TICKET_SECTION_LABELS + _POLISH_TICKET_SECTION_LABELS,
+    whole_word_labels=_POLISH_TICKET_SECTION_LABELS[-1:],
 )
-_BEST_AVAILABLE_NAME = re.compile(
-    r"(?:see\s+best\s+available|wybierz\s+najlepsze\s+dostępne\s+miejsca)",
-    re.IGNORECASE,
+_BEST_AVAILABLE_NAME = _label_pattern(
+    _ENGLISH_BEST_AVAILABLE_LABELS + _POLISH_BEST_AVAILABLE_LABELS
 )
-_POLISH_UI_PATTERN = re.compile(
-    r"(?:wyszukaj\s+bilety|\bbilety\b|"
-    r"wybierz\s+najlepsze\s+dostępne\s+miejsca|\bzł\b)",
-    re.IGNORECASE,
+_POLISH_UI_LABELS = _POLISH_TICKET_SECTION_LABELS + _POLISH_BEST_AVAILABLE_LABELS
+_ENGLISH_UI_LABELS = _ENGLISH_TICKET_SECTION_LABELS + _ENGLISH_BEST_AVAILABLE_LABELS
+_POLISH_UI_PATTERN = _label_pattern(
+    _POLISH_UI_LABELS,
+    whole_word_labels=_POLISH_TICKET_SECTION_LABELS[-1:],
 )
-_ENGLISH_UI_PATTERN = re.compile(
-    r"(?:search\s+for\s+tickets|see\s+best\s+available)",
-    re.IGNORECASE,
-)
+_ENGLISH_UI_PATTERN = _label_pattern(_ENGLISH_UI_LABELS)
+_POLISH_CURRENCY_PATTERN = re.compile(r"\bzł\b", re.IGNORECASE)
 _BLOCKED_PAGE_PATTERN = re.compile(
     r"identity\s+verified|not\s+a\s+bot|captcha|waiting\s+room|"
     r"access\s+denied|verify\s+you\s+are\s+human",
@@ -97,7 +114,6 @@ class TicketmasterPriceScraper:
                     return None
 
                 logger.info("Ticketmaster page loaded url=%s", event_url)
-                logger.info("Ticketmaster page title=%s", page.title())
                 self._accept_cookies(page)
                 body = page.locator("body")
                 body_text = body.inner_text(timeout=self._timeout_ms)
@@ -118,98 +134,61 @@ class TicketmasterPriceScraper:
                         marker_text,
                         event_url,
                     )
-                else:
-                    logger.info(
-                        "Ticketmaster ticket section marker matched=false url=%s",
-                        event_url,
-                    )
-
-                direct_prices = self._prices_from_visible_area(
+                prices = self._prices_from_visible_area(
                     ticket_section,
                     body_text,
                 )
                 logger.info(
-                    "Ticketmaster direct price candidates found count=%d url=%s",
-                    len(direct_prices),
+                    "Ticketmaster price extraction phase=direct count=%d url=%s",
+                    len(prices),
                     event_url,
                 )
-                if direct_prices:
-                    logger.info(
-                        "Ticketmaster See best available control found=false url=%s",
-                        event_url,
-                    )
-                    logger.info(
-                        "Ticketmaster See best available clicked=false url=%s",
-                        event_url,
-                    )
-                    logger.info(
-                        "Ticketmaster price candidates after click count=0 url=%s",
-                        event_url,
-                    )
-                    admission = _admission_from_prices(direct_prices)
-                    logger.info("Ticketmaster final admission=%s url=%s", admission, event_url)
-                    return admission
+                if not prices:
+                    control, control_text = self._find_best_available_control(page)
+                    if control is None:
+                        logger.warning(
+                            "Ticketmaster no price found and no best-available control url=%s",
+                            event_url,
+                        )
+                    else:
+                        logger.info(
+                            "Ticketmaster best-available control matched text=%r url=%s",
+                            control_text,
+                            event_url,
+                        )
+                        try:
+                            control.click(timeout=self._timeout_ms)
+                        except Exception:
+                            logger.warning(
+                                "Ticketmaster best-available control click failed url=%s",
+                                event_url,
+                                exc_info=True,
+                            )
+                        else:
+                            page.wait_for_timeout(1_000)
+                            body_text = body.inner_text(timeout=self._timeout_ms)
+                            prices = self._prices_from_visible_area(
+                                ticket_section,
+                                body_text,
+                            )
+                            logger.info(
+                                "Ticketmaster price extraction phase=post-click count=%d url=%s",
+                                len(prices),
+                                event_url,
+                            )
+                            if not prices:
+                                logger.warning(
+                                    "Ticketmaster no price found after best-available click url=%s",
+                                    event_url,
+                                )
 
-                control, control_text = self._find_best_available_control(page)
-                logger.info(
-                    "Ticketmaster See best available control found=%s url=%s",
-                    control is not None,
-                    event_url,
-                )
-                if control is None:
+                admission = _admission_from_prices(prices) if prices else None
+                if admission is not None:
                     logger.info(
-                        "Ticketmaster See best available clicked=false url=%s",
+                        "Ticketmaster final admission=%s url=%s",
+                        admission,
                         event_url,
                     )
-                    logger.info(
-                        "Ticketmaster price candidates after click count=0 url=%s",
-                        event_url,
-                    )
-                    logger.warning("Ticketmaster no price found and no best-available control url=%s", event_url)
-                    return None
-
-                logger.info(
-                    "Ticketmaster best-available control matched text=%r url=%s",
-                    control_text,
-                    event_url,
-                )
-
-                try:
-                    control.click(timeout=self._timeout_ms)
-                    logger.info("Ticketmaster See best available clicked=true url=%s", event_url)
-                except Exception:
-                    logger.info(
-                        "Ticketmaster See best available clicked=false url=%s",
-                        event_url,
-                    )
-                    logger.info(
-                        "Ticketmaster price candidates after click count=0 url=%s",
-                        event_url,
-                    )
-                    logger.warning(
-                        "Ticketmaster See best available click failed url=%s",
-                        event_url,
-                        exc_info=True,
-                    )
-                    return None
-
-                page.wait_for_timeout(1_000)
-                post_click_body_text = body.inner_text(timeout=self._timeout_ms)
-                post_click_prices = self._prices_from_visible_area(
-                    ticket_section,
-                    post_click_body_text,
-                )
-                logger.info(
-                    "Ticketmaster price candidates after click count=%d url=%s",
-                    len(post_click_prices),
-                    event_url,
-                )
-                if not post_click_prices:
-                    logger.warning("Ticketmaster no price found after best-available click url=%s", event_url)
-                    return None
-
-                admission = _admission_from_prices(post_click_prices)
-                logger.info("Ticketmaster final admission=%s url=%s", admission, event_url)
                 return admission
             finally:
                 page.close()
@@ -247,7 +226,9 @@ class TicketmasterPriceScraper:
 
         if language:
             return language.strip()
-        if _POLISH_UI_PATTERN.search(body_text):
+        if _POLISH_UI_PATTERN.search(body_text) or _POLISH_CURRENCY_PATTERN.search(
+            body_text
+        ):
             return "pl"
         if _ENGLISH_UI_PATTERN.search(body_text):
             return "en"

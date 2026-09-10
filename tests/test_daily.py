@@ -113,8 +113,8 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch):
 def test_daily_persists_only_recommended_event_ids(monkeypatch):
     saved_ids = []
     recommendations = [
-        SimpleNamespace(event_id="event-1"),
-        SimpleNamespace(event_id="event-2"),
+        SimpleNamespace(event_id="event-1", url=None),
+        SimpleNamespace(event_id="event-2", url=None),
     ]
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
