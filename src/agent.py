@@ -13,13 +13,13 @@ try:
         get_tool_definitions,
     )
     from .tools.ticketmaster import TicketmasterClient
-    from .models import Event, Recommendation
+    from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import load_settings
     from history import filter_unseen_events
     from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
     from tools.ticketmaster import TicketmasterClient
-    from models import Event, Recommendation
+    from models import Admission, Recommendation
 
 
 AGENT_INSTRUCTIONS = """
@@ -138,10 +138,8 @@ def _serialize_tool_result(result):
 
 def _parse_recommendations(
     output_text: str,
-    discovered_event_ids: set[str],
-    discovered_events: dict[str, Event] | None = None,
+    known_event_admissions: dict[str, Admission | None],
 ) -> list[Recommendation]:
-    discovered_events = discovered_events or {}
     payload = json.loads(output_text)
     if not isinstance(payload, dict) or not isinstance(
         payload.get("recommendations"), list
@@ -154,12 +152,12 @@ def _parse_recommendations(
 
     parsed = []
     for recommendation in recommendations:
-        if recommendation.get("event_id") not in discovered_event_ids:
+        event_id = recommendation.get("event_id")
+        if event_id not in known_event_admissions:
             raise ValueError("Agent response contains an unknown event ID")
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
-        source_event = discovered_events.get(recommendation["event_id"])
-        source_admission = source_event.admission if source_event else None
+        source_admission = known_event_admissions[event_id]
         parsed.append(
             Recommendation(
                 **(recommendation | {"admission": source_admission})
@@ -180,8 +178,7 @@ def _execute_tool_call(
     tool_handlers,
     tool_call,
     seen_event_ids,
-    discovered_event_ids,
-    discovered_events,
+    known_event_admissions,
 ):
     arguments = json.loads(tool_call.arguments)
     try:
@@ -197,17 +194,17 @@ def _execute_tool_call(
         returned_count = len(result)
         result = filter_unseen_events(
             result,
-            seen_event_ids | discovered_event_ids,
+            seen_event_ids | known_event_admissions.keys(),
         )
         logger.info(
             "search_events returned=%d unseen=%d",
             returned_count,
             len(result),
         )
-        discovered_event_ids.update(event.id for event in result)
-        discovered_events.update({event.id: event for event in result})
+        for event in result:
+            known_event_admissions[event.id] = event.admission
     elif tool_call.name == "get_event_details":
-        discovered_event_ids.add(arguments["event_id"])
+        known_event_admissions.setdefault(arguments["event_id"], None)
 
     return _serialize_tool_result(result)
 
@@ -226,8 +223,7 @@ def run_agent(
     tool_definitions = get_tool_definitions()
     client = OpenAI(api_key=settings.openai_api_key)
     seen_event_ids = set(seen_event_ids or ())
-    discovered_event_ids = set()
-    discovered_events = {}
+    known_event_admissions: dict[str, Admission | None] = {}
 
     response = client.responses.create(
         model=settings.model,
@@ -244,8 +240,7 @@ def run_agent(
                 tool_handlers,
                 tool_call,
                 seen_event_ids,
-                discovered_event_ids,
-                discovered_events,
+                known_event_admissions,
             )
             outputs.append(_build_function_call_output(tool_call, result))
 
@@ -260,8 +255,7 @@ def run_agent(
 
     recommendations = _parse_recommendations(
         response.output_text,
-        discovered_event_ids,
-        discovered_events,
+        known_event_admissions,
     )
     return AgentRunResult(
         recommendations=recommendations,

@@ -6,7 +6,7 @@ import pytest
 
 import src.agent as agent
 from src.config import SearchLocation, Settings
-from src.models import Admission, Event
+from src.models import Admission, Event, EventDetails
 from src.telegram_formatter import format_telegram_message
 
 from src.tools.registry import execute_tool
@@ -20,6 +20,61 @@ TEST_SETTINGS = Settings(
     model="test-model",
     search_location=SearchLocation("Tychy", "u2y0test", 50),
 )
+
+
+def _recommendation_payload(event_id):
+    return {
+        "event_id": event_id,
+        "name": "Concert",
+        "category": "music",
+        "date": None,
+        "time": None,
+        "city": "Tychy",
+        "venue": None,
+        "reason": "A strong local pick.",
+        "url": None,
+    }
+
+
+def _tool_response(response_id, tool_name, call_id, **arguments):
+    return SimpleNamespace(
+        id=response_id,
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name=tool_name,
+                arguments=json.dumps(arguments),
+                call_id=call_id,
+            )
+        ],
+    )
+
+
+def _final_response(*event_ids):
+    return SimpleNamespace(
+        id="response-final",
+        output=[],
+        output_text=json.dumps(
+            {
+                "recommendations": [
+                    _recommendation_payload(event_id) for event_id in event_ids
+                ]
+            }
+        ),
+    )
+
+
+def _run_with_tool_results(responses, tool_results):
+    with (
+        patch.object(agent, "load_settings", return_value=TEST_SETTINGS),
+        patch.object(agent, "OpenAI") as create_client,
+        patch.object(agent, "execute_tool", side_effect=tool_results),
+    ):
+        create = create_client.return_value.responses.create
+        create.side_effect = responses
+        result = agent.run_agent("Find events")
+
+    return result, create
 
 
 def test_parse_recommendations_returns_dataclasses():
@@ -41,7 +96,7 @@ def test_parse_recommendations_returns_dataclasses():
                 ]
             }
         ),
-        {"event-1"},
+        {"event-1": None},
     )
 
     assert recommendations[0].name == "Concert"
@@ -75,19 +130,7 @@ def test_parse_recommendations_uses_source_admission(admission, expected):
                 ]
             }
         ),
-        {"event-1"},
-        {
-            "event-1": Event(
-                "event-1",
-                "Concert",
-                None,
-                None,
-                None,
-                None,
-                "test",
-                admission,
-            )
-        },
+        {"event-1": admission},
     )
 
     assert recommendations[0].admission == expected
@@ -112,19 +155,7 @@ def test_parse_recommendations_formats_source_admission():
                 ]
             }
         ),
-        {"event-1"},
-        {
-            "event-1": Event(
-                "event-1",
-                "Concert",
-                None,
-                None,
-                None,
-                None,
-                "test",
-                Admission(False, 40, 40, "PLN"),
-            )
-        },
+        {"event-1": Admission(False, 40, 40, "PLN")},
     )
 
     message = format_telegram_message(recommendations, "Tychy", 50, 30)
@@ -148,7 +179,7 @@ def test_parse_recommendations_rejects_more_than_seven():
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
-            {"event-1"},
+            {"event-1": None},
         )
 
 
@@ -267,6 +298,108 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     ]
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
+
+
+def test_run_agent_rejects_unknown_recommendation_id():
+    with pytest.raises(ValueError, match="unknown event ID"):
+        _run_with_tool_results([_final_response("unknown")], [])
+
+
+def test_run_agent_preserves_admission_from_search_result():
+    admission = Admission(False, 40, 60, "PLN")
+    event = Event(
+        "event-1",
+        "Concert",
+        None,
+        "Tychy",
+        None,
+        None,
+        "test",
+        admission,
+    )
+
+    result, create = _run_with_tool_results(
+        [
+            _tool_response("response-1", "search_events", "call-1", days_ahead=30),
+            _final_response("event-1"),
+        ],
+        [[event]],
+    )
+
+    tool_output = json.loads(create.call_args_list[1].kwargs["input"][0]["output"])
+    assert tool_output[0]["admission"] == {
+        "is_free": False,
+        "price_min": 40,
+        "price_max": 60,
+        "currency": "PLN",
+        "note": None,
+    }
+    assert result.recommendations[0].admission == admission
+
+
+def test_run_agent_allows_event_returned_by_get_event_details():
+    result, _ = _run_with_tool_results(
+        [
+            _tool_response(
+                "response-1",
+                "get_event_details",
+                "call-1",
+                event_id="event-1",
+            ),
+            _final_response("event-1"),
+        ],
+        [EventDetails("Concert", None, None, None, "Tychy", None)],
+    )
+
+    assert result.recommended_event_ids == {"event-1"}
+    assert result.recommendations[0].admission is None
+
+
+def test_run_agent_get_event_details_preserves_search_admission():
+    admission = Admission(False, 40, 60, "PLN")
+    event = Event(
+        "event-1",
+        "Concert",
+        None,
+        "Tychy",
+        None,
+        None,
+        "test",
+        admission,
+    )
+    details = EventDetails("Concert", None, None, None, "Tychy", None)
+
+    result, _ = _run_with_tool_results(
+        [
+            _tool_response("response-1", "search_events", "call-1", days_ahead=30),
+            _tool_response(
+                "response-2",
+                "get_event_details",
+                "call-2",
+                event_id="event-1",
+            ),
+            _final_response("event-1"),
+        ],
+        [[event], details],
+    )
+
+    assert result.recommendations[0].admission == admission
+
+
+def test_run_agent_failed_tool_call_does_not_ground_event_id():
+    with pytest.raises(ValueError, match="unknown event ID"):
+        _run_with_tool_results(
+            [
+                _tool_response(
+                    "response-1",
+                    "get_event_details",
+                    "call-1",
+                    event_id="event-1",
+                ),
+                _final_response("event-1"),
+            ],
+            [RuntimeError("Ticketmaster unavailable")],
+        )
 
 
 def test_run_agent_filters_seen_events_and_returns_new_ids():
