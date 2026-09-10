@@ -125,10 +125,6 @@ def _get_function_calls(response):
     ]
 
 
-def _parse_tool_arguments(tool_call):
-    return json.loads(tool_call.arguments)
-
-
 def _serialize_tool_result(result):
     if isinstance(result, list):
         return [
@@ -164,13 +160,10 @@ def _parse_recommendations(
             raise ValueError("Agent response contains an unsupported category")
         source_event = discovered_events.get(recommendation["event_id"])
         source_admission = source_event.admission if source_event else None
-        recommendation_data = {
-            key: value
-            for key, value in recommendation.items()
-            if key != "admission"
-        }
         parsed.append(
-            Recommendation(**recommendation_data, admission=source_admission)
+            Recommendation(
+                **(recommendation | {"admission": source_admission})
+            )
         )
     return parsed
 
@@ -190,7 +183,7 @@ def _execute_tool_call(
     discovered_event_ids,
     discovered_events,
 ):
-    arguments = _parse_tool_arguments(tool_call)
+    arguments = json.loads(tool_call.arguments)
     try:
         result = execute_tool(tool_handlers, tool_call.name, arguments)
     except Exception as exception:
@@ -219,28 +212,11 @@ def _execute_tool_call(
     return _serialize_tool_result(result)
 
 
-def _continue_conversation(
-    client,
-    model,
-    response,
-    outputs,
-    tool_definitions,
-):
-    return client.responses.create(
-        model=model,
-        instructions=AGENT_INSTRUCTIONS,
-        previous_response_id=response.id,
-        input=outputs,
-        tools=tool_definitions,
-        text=RESPONSE_FORMAT,
-    )
-
-
 def run_agent(
     user_input: str,
     seen_event_ids: set[str] | None = None,
 ) -> AgentRunResult:
-    """Run the agent conversation and return its text and new event IDs."""
+    """Run the agent conversation and return recommendations and their event IDs."""
     settings = load_settings()
     ticketmaster_client = TicketmasterClient(
         settings.ticketmaster_api_key,
@@ -249,7 +225,7 @@ def run_agent(
     tool_handlers = create_tool_handlers(ticketmaster_client)
     tool_definitions = get_tool_definitions()
     client = OpenAI(api_key=settings.openai_api_key)
-    seen_event_ids = set(seen_event_ids or set())
+    seen_event_ids = set(seen_event_ids or ())
     discovered_event_ids = set()
     discovered_events = {}
 
@@ -273,12 +249,13 @@ def run_agent(
             )
             outputs.append(_build_function_call_output(tool_call, result))
 
-        response = _continue_conversation(
-            client,
-            settings.model,
-            response,
-            outputs,
-            tool_definitions,
+        response = client.responses.create(
+            model=settings.model,
+            instructions=AGENT_INSTRUCTIONS,
+            previous_response_id=response.id,
+            input=outputs,
+            tools=tool_definitions,
+            text=RESPONSE_FORMAT,
         )
 
     recommendations = _parse_recommendations(

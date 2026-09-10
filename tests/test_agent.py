@@ -211,6 +211,11 @@ def test_run_agent_handles_tool_call_without_real_openai_api():
     )
     assert create.call_count == 2
     assert create.call_args_list[0].kwargs["text"] == agent.RESPONSE_FORMAT
+    continuation_call = create.call_args_list[1]
+    assert continuation_call.kwargs["instructions"] == agent.AGENT_INSTRUCTIONS
+    assert continuation_call.kwargs["tools"] == agent.get_tool_definitions()
+    assert continuation_call.kwargs["text"] == agent.RESPONSE_FORMAT
+    assert continuation_call.kwargs["previous_response_id"] == first_response.id
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
 
