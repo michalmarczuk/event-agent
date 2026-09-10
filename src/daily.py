@@ -6,6 +6,11 @@ from history import load_seen_event_ids, save_seen_event_ids
 from telegram_notifier import send_telegram_message
 from telegram_formatter import format_telegram_message
 
+try:
+    from ticketmaster_enrichment import enrich_ticketmaster_prices
+except ImportError:  # pragma: no cover - supports package execution in tests
+    from src.ticketmaster_enrichment import enrich_ticketmaster_prices
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,9 +27,10 @@ def main() -> None:
         "Znajdź najciekawsze wydarzenia dla mnie na najbliższe 30 dni.",
         seen_event_ids=seen_event_ids,
     )
+    recommendations = enrich_ticketmaster_prices(result.recommendations)
     settings = load_settings()
     formatted_message = format_telegram_message(
-        result.recommendations,
+        recommendations,
         settings.search_location.name,
         settings.search_location.radius_km,
         30,

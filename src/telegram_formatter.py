@@ -31,7 +31,9 @@ def _format_datetime(recommendation: Recommendation) -> str | None:
 
 
 def _format_price(value: float) -> str:
-    return str(int(value)) if value == int(value) else str(value)
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.2f}".replace(".", ",")
 
 
 def _format_admission(admission: Admission | None) -> str | None:

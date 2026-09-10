@@ -128,6 +128,17 @@ def test_format_telegram_message_formats_price_range():
     assert "🎟 40–60 EUR" in message
 
 
+def test_format_telegram_message_formats_decimal_price_with_polish_separator():
+    message = format_telegram_message(
+        [recommendation(admission=Admission(False, 37.10, 63.60, "PLN"))],
+        "Tychy",
+        50,
+        30,
+    )
+
+    assert "🎟 37,10–63,60 zł" in message
+
+
 def test_format_telegram_message_omits_unknown_admission():
     message = format_telegram_message(
         [recommendation(admission=Admission(is_free=None))], "Tychy", 50, 30
