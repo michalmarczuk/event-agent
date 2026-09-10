@@ -16,7 +16,11 @@ def enrich_ticketmaster_prices(
     recommendations: list[Recommendation],
     scraper_factory: Callable[[], TicketmasterPriceScraper] = TicketmasterPriceScraper,
 ) -> list[Recommendation]:
-    """Enrich final Ticketmaster recommendations with visible web pricing."""
+    """Mutate recommendations in place with scraped Ticketmaster admission data.
+
+    A successful scrape replaces admission data. A failed or unavailable scrape
+    preserves the existing admission, and the same recommendation list is returned.
+    """
     ticketmaster_recommendations = [
         recommendation
         for recommendation in recommendations
@@ -41,7 +45,7 @@ def enrich_ticketmaster_prices(
                     recommendation.admission = admission
     except Exception:
         logger.warning(
-            "Ticketmaster price enrichment setup failed",
+            "Ticketmaster price enrichment aborted",
             exc_info=True,
         )
 

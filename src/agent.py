@@ -54,6 +54,8 @@ Return only the requested JSON structure. Do not return HTML or Markdown.
 
 logger = logging.getLogger(__name__)
 
+_MAX_RECOMMENDATIONS = 7
+
 RECOMMENDATION_CATEGORIES = (
     "music",
     "culture",
@@ -72,7 +74,7 @@ RESPONSE_FORMAT = {
             "properties": {
                 "recommendations": {
                     "type": "array",
-                    "maxItems": 7,
+                    "maxItems": _MAX_RECOMMENDATIONS,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -147,8 +149,10 @@ def _parse_recommendations(
         raise ValueError("Agent response must contain a recommendations list")
 
     recommendations = payload["recommendations"]
-    if len(recommendations) > 7:
-        raise ValueError("The agent returned more than 7 recommendations")
+    if len(recommendations) > _MAX_RECOMMENDATIONS:
+        raise ValueError(
+            f"The agent returned more than {_MAX_RECOMMENDATIONS} recommendations"
+        )
 
     parsed = []
     for recommendation in recommendations:

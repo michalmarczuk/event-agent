@@ -8,7 +8,7 @@ from telegram_formatter import format_telegram_message
 
 try:
     from ticketmaster_enrichment import enrich_ticketmaster_prices
-except ImportError:  # pragma: no cover - supports package execution in tests
+except ImportError:  # pragma: no cover - supports runpy-based entry-point tests
     from src.ticketmaster_enrichment import enrich_ticketmaster_prices
 
 logger = logging.getLogger(__name__)

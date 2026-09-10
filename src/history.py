@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -11,7 +10,6 @@ except ImportError:  # pragma: no cover - supports script execution
 
 
 SEEN_EVENTS_FILE = Path(__file__).resolve().parent.parent / "data" / "seen_events.json"
-logger = logging.getLogger(__name__)
 
 
 def load_seen_event_ids() -> set[str]:
@@ -23,13 +21,11 @@ def load_seen_event_ids() -> set[str]:
         with SEEN_EVENTS_FILE.open(encoding="utf-8") as file:
             event_ids = json.load(file)
     except json.JSONDecodeError as error:
-        logger.error("Malformed history JSON")
         raise ValueError(f"Invalid history JSON: {error.msg}") from error
 
     if not isinstance(event_ids, list) or not all(
         isinstance(event_id, str) for event_id in event_ids
     ):
-        logger.error("Invalid history structure")
         raise ValueError("History must contain a JSON list of strings")
 
     return set(event_ids)

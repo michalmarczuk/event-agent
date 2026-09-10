@@ -80,7 +80,6 @@ class TicketmasterClient:
                 price_min=price_min,
                 price_max=price_max,
                 currency=price_range.get("currency"),
-                note=None,
             )
         return None
 

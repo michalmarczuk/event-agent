@@ -36,11 +36,11 @@ _PRICE_PATTERN = re.compile(
     r"(\d+(?:[.,]\d{1,2})?)\s*(?:PLN|zł))",
     re.IGNORECASE,
 )
-_TICKET_SECTION_NAME = _label_pattern(
+_TICKET_SECTION_PATTERN = _label_pattern(
     _ENGLISH_TICKET_SECTION_LABELS + _POLISH_TICKET_SECTION_LABELS,
     whole_word_labels=_POLISH_TICKET_SECTION_LABELS[-1:],
 )
-_BEST_AVAILABLE_NAME = _label_pattern(
+_BEST_AVAILABLE_PATTERN = _label_pattern(
     _ENGLISH_BEST_AVAILABLE_LABELS + _POLISH_BEST_AVAILABLE_LABELS
 )
 _POLISH_UI_LABELS = _POLISH_TICKET_SECTION_LABELS + _POLISH_BEST_AVAILABLE_LABELS
@@ -86,7 +86,7 @@ class TicketmasterPriceScraper:
             self._playwright = None
 
     def scrape(self, event_url: str | None) -> Admission | None:
-        """Return visible PLN admission pricing or ``None`` on scrape failure."""
+        """Return visible PLN admission pricing or ``None`` when unavailable."""
         if not event_url:
             logger.warning("Ticketmaster price scrape skipped: missing event URL")
             return None
@@ -236,11 +236,13 @@ class TicketmasterPriceScraper:
 
     @staticmethod
     def _find_ticket_section(page: Any) -> tuple[Any | None, str | None]:
-        marker = _first_visible(
-            page.get_by_role("heading", name=_TICKET_SECTION_NAME)
+        marker = _first_match_if_visible(
+            page.get_by_role("heading", name=_TICKET_SECTION_PATTERN)
         )
         if marker is None:
-            marker = _first_visible(page.get_by_text(_TICKET_SECTION_NAME))
+            marker = _first_match_if_visible(
+                page.get_by_text(_TICKET_SECTION_PATTERN)
+            )
         if marker is None:
             return None, None
 
@@ -250,13 +252,15 @@ class TicketmasterPriceScraper:
     @staticmethod
     def _find_best_available_control(page: Any) -> tuple[Any | None, str | None]:
         for role in ("button", "tab"):
-            control = _first_visible(
-                page.get_by_role(role, name=_BEST_AVAILABLE_NAME)
+            control = _first_match_if_visible(
+                page.get_by_role(role, name=_BEST_AVAILABLE_PATTERN)
             )
             if control is not None:
                 return control, _locator_text(control)
 
-        control = _first_visible(page.get_by_text(_BEST_AVAILABLE_NAME))
+        control = _first_match_if_visible(
+            page.get_by_text(_BEST_AVAILABLE_PATTERN)
+        )
         if control is not None:
             return control, _locator_text(control)
         return None, None
@@ -296,7 +300,7 @@ def _prices_from_text(text: str) -> list[float]:
     return prices
 
 
-def _first_visible(locator: Any) -> Any | None:
+def _first_match_if_visible(locator: Any) -> Any | None:
     if not locator.count():
         return None
 
