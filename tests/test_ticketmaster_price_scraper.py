@@ -59,8 +59,18 @@ def scraper_for(
     section_marker_role="heading",
     best_control_text=None,
     page_language=None,
+    page_title="Ticketmaster Event",
+    user_agent="test-user-agent",
+    viewport_size=None,
 ):
     page = MagicMock()
+    page.url = "https://example.test/current-event"
+    page.title.return_value = page_title
+    page.evaluate.side_effect = lambda expression: {
+        "document.documentElement.lang": page_language or "",
+        "navigator.userAgent": user_agent,
+    }[expression]
+    page.viewport_size = viewport_size or {"width": 1440, "height": 900}
     body = FakeLocator(body_text)
 
     def click_best_available():
@@ -209,13 +219,32 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
     )
 
 
-def test_scrape_returns_none_without_prices_control_or_ticket_marker():
+def test_scrape_logs_diagnostics_without_prices_control_or_ticket_marker(caplog):
+    visible_prefix = "pArDoN " + "x" * 1_493
+    body_text = visible_prefix + "not-in-visible-prefix"
     scraper, _, _ = scraper_for(
-        "Event page without tickets or prices",
+        body_text,
         section_marker=None,
+        page_language="pl-PL",
+        page_title="YOUR BROWSING ACTIVITY HAS BEEN PAUSED",
+        user_agent="diagnostic-user-agent",
+        viewport_size={"width": 1280, "height": 720},
     )
 
-    assert scraper.scrape("https://example.test/event") is None
+    with caplog.at_level(logging.WARNING):
+        assert scraper.scrape("https://example.test/event") is None
+
+    assert "page_url='https://example.test/current-event'" in caplog.text
+    assert "title='YOUR BROWSING ACTIVITY HAS BEEN PAUSED'" in caplog.text
+    assert "document_element_lang='pl-PL'" in caplog.text
+    assert f"body_text_length={len(body_text)}" in caplog.text
+    assert repr(visible_prefix) in caplog.text
+    assert "not-in-visible-prefix" not in caplog.text
+    assert "challenge_detected=True" in caplog.text
+    assert "Your Browsing Activity Has Been Paused" in caplog.text
+    assert "Pardon" in caplog.text
+    assert "user_agent='diagnostic-user-agent'" in caplog.text
+    assert "viewport_size={'width': 1280, 'height': 720}" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -289,19 +318,24 @@ def test_scrape_returns_none_when_best_available_click_fails():
     assert scraper.scrape("https://example.test/event") is None
 
 
-def test_scrape_returns_none_when_click_does_not_reveal_prices():
-    scraper, _, _ = scraper_for(
+def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
+    scraper, page, _ = scraper_for(
         "Search For Tickets\nNo prices yet",
         after_click="Search For Tickets\nStill no prices",
         best_control_text="See best available",
     )
 
-    assert scraper.scrape("https://example.test/event") is None
+    with caplog.at_level(logging.INFO):
+        assert scraper.scrape("https://example.test/event") is None
+
+    assert "pricing unavailable diagnostics" not in caplog.text
+    page.title.assert_not_called()
+    page.evaluate.assert_not_called()
 
 
 def test_scrape_logs_diagnostics_without_secrets(caplog):
     secret = "secret-token-value"
-    scraper, _, _ = scraper_for(
+    scraper, page, _ = scraper_for(
         f"Search For Tickets\nNormal ticket PLN 49\n{secret}",
     )
 
@@ -312,4 +346,7 @@ def test_scrape_logs_diagnostics_without_secrets(caplog):
     assert "final admission=" in caplog.text
     assert "found=false" not in caplog.text
     assert "clicked=false" not in caplog.text
+    assert "pricing unavailable diagnostics" not in caplog.text
     assert secret not in caplog.text
+    page.title.assert_not_called()
+    page.evaluate.assert_not_called()

@@ -56,6 +56,15 @@ _BLOCKED_PAGE_PATTERN = re.compile(
     r"access\s+denied|verify\s+you\s+are\s+human",
     re.IGNORECASE,
 )
+_PRICING_UNAVAILABLE_MARKERS = (
+    "Your Browsing Activity Has Been Paused",
+    "Let's Get Your Identity Verified",
+    "Access Denied",
+    "Pardon",
+    "Verify",
+    "captcha",
+    "robot",
+)
 
 
 class TicketmasterPriceScraper:
@@ -150,6 +159,7 @@ class TicketmasterPriceScraper:
                             "Ticketmaster no price found and no best-available control url=%s",
                             event_url,
                         )
+                        _log_pricing_unavailable_diagnostics(page, body_text)
                     else:
                         logger.info(
                             "Ticketmaster best-available control matched text=%r url=%s",
@@ -298,6 +308,51 @@ def _prices_from_text(text: str) -> list[float]:
         value = match.group(1) or match.group(2)
         prices.append(float(value.replace(",", ".")))
     return prices
+
+
+def _log_pricing_unavailable_diagnostics(page: Any, body_text: str) -> None:
+    try:
+        page_url = page.url
+    except Exception:
+        page_url = "<unavailable>"
+    try:
+        page_title = page.title()
+    except Exception:
+        page_title = "<unavailable>"
+    try:
+        document_language = page.evaluate("document.documentElement.lang")
+    except Exception:
+        document_language = "<unavailable>"
+    try:
+        user_agent = page.evaluate("navigator.userAgent")
+    except Exception:
+        user_agent = "<unavailable>"
+    try:
+        viewport_size = page.viewport_size
+    except Exception:
+        viewport_size = "<unavailable>"
+
+    searchable_text = f"{page_title}\n{body_text}".casefold()
+    matched_markers = [
+        marker
+        for marker in _PRICING_UNAVAILABLE_MARKERS
+        if marker.casefold() in searchable_text
+    ]
+    logger.warning(
+        "Ticketmaster pricing unavailable diagnostics page_url=%r title=%r "
+        "document_element_lang=%r body_text_length=%d visible_body_text_prefix=%r "
+        "challenge_detected=%s matched_challenge_markers=%r user_agent=%r "
+        "viewport_size=%r",
+        page_url,
+        page_title,
+        document_language,
+        len(body_text),
+        body_text[:1_500],
+        bool(matched_markers),
+        matched_markers,
+        user_agent,
+        viewport_size,
+    )
 
 
 def _first_match_if_visible(locator: Any) -> Any | None:
