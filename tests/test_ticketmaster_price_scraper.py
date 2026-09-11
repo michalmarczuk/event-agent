@@ -44,6 +44,10 @@ class FakeLocator:
     def is_visible(self):
         return True
 
+    def wait_for(self, **kwargs):
+        if not self.item_count:
+            raise PlaywrightTimeoutError("locator is not visible")
+
     def locator(self, *args, **kwargs):
         return self.parent or self
 
@@ -58,6 +62,9 @@ def scraper_for(
     section_marker="Search For Tickets",
     section_marker_role="heading",
     best_control_text=None,
+    consent_text=None,
+    after_consent=None,
+    consent_click_error=None,
     page_language=None,
     page_title="Ticketmaster Event",
     user_agent="test-user-agent",
@@ -77,6 +84,12 @@ def scraper_for(
         if after_click is not None:
             body.text = after_click
 
+    def click_consent():
+        if consent_click_error is not None:
+            raise consent_click_error
+        if after_consent is not None:
+            body.text = after_consent
+
     heading = FakeLocator(
         text=section_marker or "",
         count=int(section_marker is not None),
@@ -87,7 +100,11 @@ def scraper_for(
         click=click_best_available,
         count=int(best_control_text is not None),
     )
-    accept_cookies = FakeLocator(count=0)
+    consent_control = FakeLocator(
+        text=consent_text or "",
+        click=click_consent,
+        count=int(consent_text is not None),
+    )
     missing = FakeLocator(count=0)
 
     def matches(pattern, text):
@@ -98,8 +115,8 @@ def scraper_for(
         return pattern == text
 
     def get_by_role(role, name):
-        if role == "button" and matches(name, "Accept Cookies"):
-            return accept_cookies
+        if role == "button" and matches(name, consent_text):
+            return consent_control
         if role == section_marker_role and matches(name, section_marker):
             return heading
         if role in ("button", "tab") and matches(name, best_control_text):
@@ -123,6 +140,7 @@ def scraper_for(
     page.get_by_role.side_effect = get_by_role
     page.get_by_text.side_effect = get_by_text
     page.locator.side_effect = locator
+    page.consent_control = consent_control
     browser = MagicMock()
     browser.new_context.return_value.new_page.return_value = page
     return TicketmasterPriceScraper(browser=browser), page, best_control
@@ -139,6 +157,87 @@ def test_scrape_extracts_two_prices_as_range():
     assert result == Admission(False, 37.10, 63.60, "PLN")
     page.goto.assert_called_once()
     page.close.assert_called_once()
+
+
+@pytest.mark.parametrize("consent_text", ["Accept Cookies", "Accept"])
+def test_scrape_accepts_english_consent(consent_text, caplog):
+    scraper, page, _ = scraper_for(
+        "Privacy choices",
+        consent_text=consent_text,
+        after_consent="Search For Tickets\nNormal ticket PLN 49",
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = scraper.scrape("https://example.test/event")
+
+    assert result == Admission(False, 49, 49, "PLN")
+    assert page.consent_control.click_count == 1
+    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert f"consent control found matched text='{consent_text}'" in caplog.text
+    assert f"consent clicked matched text='{consent_text}'" in caplog.text
+
+
+def test_scrape_accepts_polish_consent(caplog):
+    consent_text = "Akceptuję"
+    scraper, page, _ = scraper_for(
+        "Dbamy o Twoją prywatność\nOdrzucenie wszystkich\nPokaż cele",
+        consent_text=consent_text,
+        after_consent="Bilety\nBilet normalny 63,60 zł",
+        section_marker="Bilety",
+        page_language="pl-PL",
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = scraper.scrape("https://example.test/event")
+
+    assert result == Admission(False, 63.60, 63.60, "PLN")
+    assert page.consent_control.click_count == 1
+    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert "consent control found matched text='Akceptuję'" in caplog.text
+    assert "consent clicked matched text='Akceptuję'" in caplog.text
+
+
+def test_scrape_continues_without_consent_dialog(caplog):
+    scraper, page, _ = scraper_for("Search For Tickets\nNormal ticket PLN 49")
+
+    with caplog.at_level(logging.INFO):
+        result = scraper.scrape("https://example.test/event")
+
+    assert result == Admission(False, 49, 49, "PLN")
+    assert page.consent_control.click_count == 0
+    page.wait_for_timeout.assert_not_called()
+    assert "consent control found" not in caplog.text
+    assert "consent clicked" not in caplog.text
+
+
+def test_scrape_continues_when_consent_click_fails(caplog):
+    scraper, page, _ = scraper_for(
+        "Privacy modal\nSearch For Tickets\nNormal ticket PLN 49",
+        consent_text="Accept Cookies",
+        consent_click_error=RuntimeError("consent click failed"),
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = scraper.scrape("https://example.test/event")
+
+    assert result == Admission(False, 49, 49, "PLN")
+    assert page.consent_control.click_count == 1
+    page.wait_for_timeout.assert_not_called()
+    assert "consent control found matched text='Accept Cookies'" in caplog.text
+    assert "consent control click failed" in caplog.text
+    assert "consent clicked" not in caplog.text
+
+
+def test_scrape_does_not_click_reject_all_control():
+    scraper, page, _ = scraper_for(
+        "Odrzucenie wszystkich\nSearch For Tickets\nNormal ticket PLN 49",
+        consent_text="Odrzucenie wszystkich",
+    )
+
+    assert scraper.scrape("https://example.test/event") == Admission(
+        False, 49, 49, "PLN"
+    )
+    assert page.consent_control.click_count == 0
 
 
 @pytest.mark.parametrize(

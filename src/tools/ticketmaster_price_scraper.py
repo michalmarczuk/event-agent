@@ -51,6 +51,10 @@ _POLISH_UI_PATTERN = _label_pattern(
 )
 _ENGLISH_UI_PATTERN = _label_pattern(_ENGLISH_UI_LABELS)
 _POLISH_CURRENCY_PATTERN = re.compile(r"\bzł\b", re.IGNORECASE)
+_CONSENT_ACCEPT_PATTERN = re.compile(
+    r"^\s*(?:Accept\s+Cookies|Accept|Akceptuję)\s*$",
+    re.IGNORECASE,
+)
 _BLOCKED_PAGE_PATTERN = re.compile(
     r"identity\s+verified|not\s+a\s+bot|captcha|waiting\s+room|"
     r"access\s+denied|verify\s+you\s+are\s+human",
@@ -294,12 +298,36 @@ class TicketmasterPriceScraper:
     @staticmethod
     def _accept_cookies(page) -> None:
         try:
-            page.get_by_role(
-                "button",
-                name=re.compile(r"accept\s+cookies", re.IGNORECASE),
-            ).click(timeout=2_000)
+            control = page.get_by_role(
+                "button", name=_CONSENT_ACCEPT_PATTERN
+            ).first
+            control.wait_for(state="visible", timeout=2_000)
         except PlaywrightTimeoutError:
-            pass
+            return
+
+        matched_text = _locator_text(control)
+        logger.info(
+            "Ticketmaster consent control found matched text=%r",
+            matched_text,
+        )
+        try:
+            control.click(timeout=2_000)
+        except Exception:
+            logger.warning(
+                "Ticketmaster consent control click failed matched text=%r",
+                matched_text,
+                exc_info=True,
+            )
+            return
+
+        logger.info("Ticketmaster consent clicked matched text=%r", matched_text)
+        try:
+            page.wait_for_timeout(1_000)
+        except Exception:
+            logger.warning(
+                "Ticketmaster post-consent wait failed",
+                exc_info=True,
+            )
 
 
 def _prices_from_text(text: str) -> list[float]:
