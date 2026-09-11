@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -74,6 +75,7 @@ def scraper_for(
 ):
     page = MagicMock()
     page.url = "https://example.test/current-event"
+    page.goto.return_value = SimpleNamespace(status=200, url=page.url)
     page.title.return_value = page_title
     page.viewport_size = viewport_size or {"width": 1440, "height": 900}
     body = FakeLocator(body_text)
@@ -84,6 +86,25 @@ def scraper_for(
     page.frames = [main_frame]
     page.main_frame = main_frame
     event_handlers = {}
+    page.event_handlers = event_handlers
+    page.main_document_state = {
+        "bodyInnerHTMLLength": len(body.text),
+        "bodyTextContentLength": len(body.text),
+        "bodyInnerTextLength": len(body.text),
+        "bodyChildElementCount": 1,
+        "bodyChildren": [
+            {
+                "tagName": "DIV",
+                "name": "",
+                "id": "root",
+                "classes": "app",
+            }
+        ],
+        "documentOuterHTMLLength": len(page.content()),
+        "bodyDisplay": "block",
+        "bodyVisibility": "visible",
+        "bodyOpacity": "1",
+    }
 
     def register_event_handler(event_name, callback):
         event_handlers.setdefault(event_name, []).append(callback)
@@ -91,6 +112,8 @@ def scraper_for(
     page.on.side_effect = register_event_handler
 
     def evaluate(expression):
+        if "bodyInnerHTMLLength" in expression:
+            return page.main_document_state
         if "bodyTextLength" in expression:
             return {
                 "readyState": "complete",
@@ -294,12 +317,174 @@ def test_consent_readiness_diagnostics_run_only_for_first_scraped_event(caplog):
     assert second_result == Admission(False, 49, 49, "PLN")
     assert caplog.text.count("consent readiness checkpoint=before-click") == 1
     assert caplog.text.count("consent readiness checkpoint=") == 5
+    assert caplog.text.count("first-event main document response") == 1
+    assert caplog.text.count("first-event main document diagnostic body_") == 1
+    assert page.on.call_count == 6
     assert page.wait_for_timeout.call_args_list == [
         call(1_000),
         call(2_000),
         call(2_000),
         call(1_000),
     ]
+
+
+def test_first_event_diagnostics_capture_dom_and_browser_failures(caplog):
+    scraper, page, _ = scraper_for(
+        "Privacy choices",
+        consent_text="Accept Cookies",
+        after_consent="",
+        section_marker=None,
+        page_title="",
+    )
+    page.main_document_state = {
+        "bodyInnerHTMLLength": 249_000,
+        "bodyTextContentLength": 0,
+        "bodyInnerTextLength": 0,
+        "bodyChildElementCount": 2,
+        "bodyChildren": [
+            {
+                "tagName": "DIV",
+                "name": "application",
+                "id": "root",
+                "classes": "hidden shell",
+            },
+            {
+                "tagName": "IFRAME",
+                "name": "analytics",
+                "id": "",
+                "classes": "",
+            },
+        ],
+        "documentOuterHTMLLength": 250_000,
+        "bodyDisplay": "none",
+        "bodyVisibility": "hidden",
+        "bodyOpacity": "0",
+    }
+
+    def goto(*args, **kwargs):
+        handlers = page.event_handlers
+        handlers["pageerror"][0](
+            SimpleNamespace(message="bootstrap failed token=page-secret")
+        )
+        handlers["console"][0](
+            SimpleNamespace(
+                type="warning",
+                text=(
+                    "hydration warning https://www.ticketmaster.pl/app.js?token=url-secret "
+                    "cookie=session-secret"
+                ),
+            )
+        )
+        handlers["console"][0](
+            SimpleNamespace(type="info", text="ignored console info")
+        )
+        handlers["requestfailed"][0](
+            SimpleNamespace(
+                url="https://assets.example.test/app.js?token=request-secret",
+                failure="net::ERR_FAILED api_key=reason-secret",
+            )
+        )
+        handlers["response"][0](
+            SimpleNamespace(
+                url="https://www.ticketmaster.pl/api/bootstrap?token=response-secret",
+                status=503,
+            )
+        )
+        handlers["response"][0](
+            SimpleNamespace(url="https://ads.example.test/blocked", status=500)
+        )
+        handlers["response"][0](
+            SimpleNamespace(url="https://www.ticketmaster.pl/healthy", status=204)
+        )
+        return SimpleNamespace(
+            url="https://www.ticketmaster.pl/event/123?token=main-secret",
+            status=200,
+        )
+
+    page.goto.side_effect = goto
+
+    with caplog.at_level(logging.INFO):
+        assert scraper.scrape("https://example.test/event") is None
+
+    assert (
+        "first-event main document response status=200 "
+        "url='https://www.ticketmaster.pl/event/123'"
+    ) in caplog.text
+    assert "captured failures browser_count=2 network_count=2" in caplog.text
+    assert "kind': 'pageerror'" in caplog.text
+    assert "bootstrap failed token=<redacted>" in caplog.text
+    assert "kind': 'console'" in caplog.text
+    assert "https://www.ticketmaster.pl/app.js" in caplog.text
+    assert "cookie=<redacted>" in caplog.text
+    assert "ignored console info" not in caplog.text
+    assert "kind': 'requestfailed'" in caplog.text
+    assert "https://assets.example.test/app.js" in caplog.text
+    assert "api_key=<redacted>" in caplog.text
+    assert "kind': 'non-2xx-response'" in caplog.text
+    assert "https://www.ticketmaster.pl/api/bootstrap" in caplog.text
+    assert "status': 503" in caplog.text
+    assert "https://ads.example.test/blocked" not in caplog.text
+    assert "https://www.ticketmaster.pl/healthy" not in caplog.text
+    assert "body_inner_html_length=249000" in caplog.text
+    assert "body_text_content_length=0" in caplog.text
+    assert "body_inner_text_length=0" in caplog.text
+    assert "body_child_element_count=2" in caplog.text
+    assert "'id': 'root'" in caplog.text
+    assert "'classes': 'hidden shell'" in caplog.text
+    assert "document_outer_html_length=250000" in caplog.text
+    assert "body_display='none'" in caplog.text
+    assert "body_visibility='hidden'" in caplog.text
+    assert "body_opacity='0'" in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_first_event_browser_diagnostics_are_bounded(caplog):
+    scraper, page, _ = scraper_for(
+        "Privacy choices",
+        consent_text="Accept Cookies",
+        after_consent="Search For Tickets\nNormal ticket PLN 49",
+    )
+
+    def goto(*args, **kwargs):
+        handlers = page.event_handlers
+        for index in range(25):
+            handlers["pageerror"][0](
+                SimpleNamespace(message=f"bounded page error {index}")
+            )
+            handlers["requestfailed"][0](
+                SimpleNamespace(
+                    url=f"https://assets.example.test/{index}",
+                    failure=f"bounded request failure {index}",
+                )
+            )
+        return SimpleNamespace(
+            url="https://www.ticketmaster.pl/event/123",
+            status=200,
+        )
+
+    page.goto.side_effect = goto
+
+    with caplog.at_level(logging.INFO):
+        assert scraper.scrape("https://example.test/event") == Admission(
+            False, 49, 49, "PLN"
+        )
+
+    browser_failures = [
+        record
+        for record in caplog.records
+        if "first-event browser failure" in record.getMessage()
+    ]
+    network_failures = [
+        record
+        for record in caplog.records
+        if "first-event network failure" in record.getMessage()
+    ]
+    assert len(browser_failures) == 20
+    assert len(network_failures) == 20
+    assert "bounded page error 19" in caplog.text
+    assert "bounded page error 20" not in caplog.text
+    assert "bounded request failure 19" in caplog.text
+    assert "bounded request failure 20" not in caplog.text
 
 
 def test_scrape_continues_without_consent_dialog(caplog):
