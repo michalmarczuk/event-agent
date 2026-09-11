@@ -55,6 +55,12 @@ _CONSENT_ACCEPT_PATTERN = re.compile(
     r"^\s*(?:Accept\s+Cookies|Accept|Akceptuję)\s*$",
     re.IGNORECASE,
 )
+_CONSENT_READINESS_SCRIPT = """
+() => ({
+    readyState: document.readyState,
+    bodyTextLength: document.body ? document.body.innerText.length : 0,
+})
+"""
 _BLOCKED_PAGE_PATTERN = re.compile(
     r"identity\s+verified|not\s+a\s+bot|captcha|waiting\s+room|"
     r"access\s+denied|verify\s+you\s+are\s+human",
@@ -80,6 +86,7 @@ class TicketmasterPriceScraper:
         self._timeout_ms = timeout_ms
         self._playwright = None
         self._owns_browser = browser is None
+        self._consent_diagnostics_pending = True
 
     def __enter__(self) -> "TicketmasterPriceScraper":
         self._ensure_browser()
@@ -127,7 +134,12 @@ class TicketmasterPriceScraper:
                     return None
 
                 logger.info("Ticketmaster page loaded url=%s", event_url)
-                self._accept_cookies(page)
+                consent_diagnostics_enabled = self._consent_diagnostics_pending
+                self._consent_diagnostics_pending = False
+                self._accept_cookies(
+                    page,
+                    diagnostics_enabled=consent_diagnostics_enabled,
+                )
                 body = page.locator("body")
                 body_text = body.inner_text(timeout=self._timeout_ms)
                 page_variant = self._detect_page_variant(page, body_text)
@@ -296,7 +308,7 @@ class TicketmasterPriceScraper:
         return _prices_from_text(body_text)
 
     @staticmethod
-    def _accept_cookies(page) -> None:
+    def _accept_cookies(page, *, diagnostics_enabled: bool = False) -> None:
         try:
             control = page.get_by_role(
                 "button", name=_CONSENT_ACCEPT_PATTERN
@@ -310,6 +322,49 @@ class TicketmasterPriceScraper:
             "Ticketmaster consent control found matched text=%r",
             matched_text,
         )
+
+        event_state = {
+            "tracking": False,
+            "navigation_urls": [],
+            "main_frame_navigation_count": 0,
+            "load_count": 0,
+        }
+        if diagnostics_enabled:
+            _log_consent_readiness_checkpoint(
+                page,
+                "before-click",
+                event_state,
+            )
+
+            def record_navigation(frame) -> None:
+                if not event_state["tracking"]:
+                    return
+                try:
+                    frame_url = frame.url
+                except Exception:
+                    frame_url = "<unavailable>"
+                event_state["navigation_urls"].append(frame_url)
+                try:
+                    is_main_frame = frame == page.main_frame
+                except Exception:
+                    is_main_frame = False
+                if is_main_frame:
+                    event_state["main_frame_navigation_count"] += 1
+
+            def record_load() -> None:
+                if event_state["tracking"]:
+                    event_state["load_count"] += 1
+
+            try:
+                page.on("framenavigated", record_navigation)
+                page.on("load", record_load)
+            except Exception:
+                logger.warning(
+                    "Ticketmaster consent navigation/load listener setup failed",
+                    exc_info=True,
+                )
+            event_state["tracking"] = True
+
         try:
             control.click(timeout=2_000)
         except Exception:
@@ -318,16 +373,49 @@ class TicketmasterPriceScraper:
                 matched_text,
                 exc_info=True,
             )
+            event_state["tracking"] = False
             return
 
         logger.info("Ticketmaster consent clicked matched text=%r", matched_text)
-        try:
-            page.wait_for_timeout(1_000)
-        except Exception:
-            logger.warning(
-                "Ticketmaster post-consent wait failed",
-                exc_info=True,
+        if diagnostics_enabled:
+            _log_consent_readiness_checkpoint(
+                page,
+                "immediately-after-click",
+                event_state,
             )
+
+        wait_checkpoints = (
+            ((1_000, "after-1s"), (2_000, "after-3s"), (2_000, "after-5s"))
+            if diagnostics_enabled
+            else ((1_000, None),)
+        )
+        for wait_ms, checkpoint in wait_checkpoints:
+            try:
+                page.wait_for_timeout(wait_ms)
+            except Exception:
+                logger.warning(
+                    "Ticketmaster post-consent wait failed",
+                    exc_info=True,
+                )
+                break
+            if checkpoint is not None:
+                _log_consent_readiness_checkpoint(page, checkpoint, event_state)
+
+        if diagnostics_enabled:
+            logger.info(
+                "Ticketmaster consent post-click events navigation_observed=%s "
+                "main_frame_navigation_observed=%s load_observed=%s "
+                "navigation_event_count=%d main_frame_navigation_event_count=%d "
+                "load_event_count=%d navigation_event_urls=%r",
+                bool(event_state["navigation_urls"]),
+                bool(event_state["main_frame_navigation_count"]),
+                bool(event_state["load_count"]),
+                len(event_state["navigation_urls"]),
+                event_state["main_frame_navigation_count"],
+                event_state["load_count"],
+                event_state["navigation_urls"],
+            )
+            event_state["tracking"] = False
 
 
 def _prices_from_text(text: str) -> list[float]:
@@ -336,6 +424,56 @@ def _prices_from_text(text: str) -> list[float]:
         value = match.group(1) or match.group(2)
         prices.append(float(value.replace(",", ".")))
     return prices
+
+
+def _log_consent_readiness_checkpoint(
+    page: Any,
+    checkpoint: str,
+    event_state: dict[str, Any],
+) -> None:
+    try:
+        page_url = page.url
+    except Exception:
+        page_url = "<unavailable>"
+    try:
+        document_state = page.evaluate(_CONSENT_READINESS_SCRIPT)
+        ready_state = document_state.get("readyState", "<unavailable>")
+        body_text_length = document_state.get("bodyTextLength", "<unavailable>")
+    except Exception:
+        ready_state = "<unavailable>"
+        body_text_length = "<unavailable>"
+    try:
+        page_title = page.title()
+    except Exception:
+        page_title = "<unavailable>"
+    try:
+        content_length = len(page.content())
+    except Exception:
+        content_length = "<unavailable>"
+    try:
+        frame_urls = [frame.url for frame in page.frames]
+        frame_count = len(frame_urls)
+    except Exception:
+        frame_urls = "<unavailable>"
+        frame_count = "<unavailable>"
+
+    logger.info(
+        "Ticketmaster consent readiness checkpoint=%s page_url=%r "
+        "ready_state=%r title=%r body_text_length=%r content_length=%r "
+        "frame_count=%r frame_urls=%r navigation_observed=%s "
+        "main_frame_navigation_observed=%s load_observed=%s",
+        checkpoint,
+        page_url,
+        ready_state,
+        page_title,
+        body_text_length,
+        content_length,
+        frame_count,
+        frame_urls,
+        bool(event_state["navigation_urls"]),
+        bool(event_state["main_frame_navigation_count"]),
+        bool(event_state["load_count"]),
+    )
 
 
 def _log_pricing_unavailable_diagnostics(page: Any, body_text: str) -> None:

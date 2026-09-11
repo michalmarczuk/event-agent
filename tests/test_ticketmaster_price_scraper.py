@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -65,6 +65,8 @@ def scraper_for(
     consent_text=None,
     after_consent=None,
     consent_click_error=None,
+    consent_navigation_url=None,
+    consent_triggers_load=False,
     page_language=None,
     page_title="Ticketmaster Event",
     user_agent="test-user-agent",
@@ -73,12 +75,33 @@ def scraper_for(
     page = MagicMock()
     page.url = "https://example.test/current-event"
     page.title.return_value = page_title
-    page.evaluate.side_effect = lambda expression: {
-        "document.documentElement.lang": page_language or "",
-        "navigator.userAgent": user_agent,
-    }[expression]
     page.viewport_size = viewport_size or {"width": 1440, "height": 900}
     body = FakeLocator(body_text)
+    page.content.side_effect = lambda: f"<html><body>{body.text}</body></html>"
+
+    main_frame = MagicMock()
+    main_frame.url = page.url
+    page.frames = [main_frame]
+    page.main_frame = main_frame
+    event_handlers = {}
+
+    def register_event_handler(event_name, callback):
+        event_handlers.setdefault(event_name, []).append(callback)
+
+    page.on.side_effect = register_event_handler
+
+    def evaluate(expression):
+        if "bodyTextLength" in expression:
+            return {
+                "readyState": "complete",
+                "bodyTextLength": len(body.text),
+            }
+        return {
+            "document.documentElement.lang": page_language or "",
+            "navigator.userAgent": user_agent,
+        }[expression]
+
+    page.evaluate.side_effect = evaluate
 
     def click_best_available():
         if after_click is not None:
@@ -89,6 +112,15 @@ def scraper_for(
             raise consent_click_error
         if after_consent is not None:
             body.text = after_consent
+        if consent_navigation_url is not None:
+            page.url = consent_navigation_url
+            main_frame.url = consent_navigation_url
+            for callback in event_handlers.get("framenavigated", []):
+                callback(main_frame)
+        if consent_triggers_load:
+            for callback in event_handlers.get("load", []):
+                callback()
+        consent_control.item_count = 0
 
     heading = FakeLocator(
         text=section_marker or "",
@@ -172,17 +204,24 @@ def test_scrape_accepts_english_consent(consent_text, caplog):
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 1
-    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert page.wait_for_timeout.call_args_list == [
+        call(1_000),
+        call(2_000),
+        call(2_000),
+    ]
     assert f"consent control found matched text='{consent_text}'" in caplog.text
     assert f"consent clicked matched text='{consent_text}'" in caplog.text
 
 
 def test_scrape_accepts_polish_consent(caplog):
     consent_text = "Akceptuję"
+    privacy_text = "Dbamy o Twoją prywatność\nOdrzucenie wszystkich\nPokaż cele"
     scraper, page, _ = scraper_for(
-        "Dbamy o Twoją prywatność\nOdrzucenie wszystkich\nPokaż cele",
+        privacy_text,
         consent_text=consent_text,
         after_consent="Bilety\nBilet normalny 63,60 zł",
+        consent_navigation_url="https://example.test/after-consent",
+        consent_triggers_load=True,
         section_marker="Bilety",
         page_language="pl-PL",
     )
@@ -192,9 +231,75 @@ def test_scrape_accepts_polish_consent(caplog):
 
     assert result == Admission(False, 63.60, 63.60, "PLN")
     assert page.consent_control.click_count == 1
-    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert page.wait_for_timeout.call_args_list == [
+        call(1_000),
+        call(2_000),
+        call(2_000),
+    ]
     assert "consent control found matched text='Akceptuję'" in caplog.text
     assert "consent clicked matched text='Akceptuję'" in caplog.text
+    checkpoints = [
+        record.getMessage()
+        for record in caplog.records
+        if "consent readiness checkpoint=" in record.getMessage()
+    ]
+    assert len(checkpoints) == 5
+    assert "checkpoint=before-click" in checkpoints[0]
+    assert "page_url='https://example.test/current-event'" in checkpoints[0]
+    assert "ready_state='complete'" in checkpoints[0]
+    assert "title='Ticketmaster Event'" in checkpoints[0]
+    assert f"body_text_length={len(privacy_text)}" in checkpoints[0]
+    assert "content_length=" in checkpoints[0]
+    assert "frame_count=1" in checkpoints[0]
+    assert "frame_urls=['https://example.test/current-event']" in checkpoints[0]
+    checkpoint_names = [
+        message.split("checkpoint=", 1)[1].split(" ", 1)[0]
+        for message in checkpoints
+    ]
+    assert checkpoint_names == [
+        "before-click",
+        "immediately-after-click",
+        "after-1s",
+        "after-3s",
+        "after-5s",
+    ]
+    assert all(
+        "page_url='https://example.test/after-consent'" in message
+        for message in checkpoints[1:]
+    )
+    assert all("navigation_observed=True" in message for message in checkpoints[1:])
+    assert all(
+        "main_frame_navigation_observed=True" in message
+        for message in checkpoints[1:]
+    )
+    assert all("load_observed=True" in message for message in checkpoints[1:])
+    assert "consent post-click events navigation_observed=True" in caplog.text
+    assert "main_frame_navigation_observed=True" in caplog.text
+    assert "load_observed=True" in caplog.text
+
+
+def test_consent_readiness_diagnostics_run_only_for_first_scraped_event(caplog):
+    scraper, page, _ = scraper_for(
+        "Privacy choices",
+        consent_text="Accept Cookies",
+        after_consent="Search For Tickets\nNormal ticket PLN 49",
+    )
+
+    with caplog.at_level(logging.INFO):
+        first_result = scraper.scrape("https://example.test/event-1")
+        page.consent_control.item_count = 1
+        second_result = scraper.scrape("https://example.test/event-2")
+
+    assert first_result == Admission(False, 49, 49, "PLN")
+    assert second_result == Admission(False, 49, 49, "PLN")
+    assert caplog.text.count("consent readiness checkpoint=before-click") == 1
+    assert caplog.text.count("consent readiness checkpoint=") == 5
+    assert page.wait_for_timeout.call_args_list == [
+        call(1_000),
+        call(2_000),
+        call(2_000),
+        call(1_000),
+    ]
 
 
 def test_scrape_continues_without_consent_dialog(caplog):
