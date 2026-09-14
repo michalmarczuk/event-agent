@@ -2,3 +2,4 @@ openai
 python-dotenv
 requests
 playwright
+camoufox==0.5.6

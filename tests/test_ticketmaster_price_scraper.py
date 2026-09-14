@@ -1,11 +1,11 @@
 import logging
-from types import SimpleNamespace
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.models import Admission
+from src.tools import ticketmaster_price_scraper as scraper_module
 from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
 
 
@@ -66,65 +66,10 @@ def scraper_for(
     consent_text=None,
     after_consent=None,
     consent_click_error=None,
-    consent_navigation_url=None,
-    consent_triggers_load=False,
     page_language=None,
-    page_title="Ticketmaster Event",
-    user_agent="test-user-agent",
-    viewport_size=None,
 ):
     page = MagicMock()
-    page.url = "https://example.test/current-event"
-    page.goto.return_value = SimpleNamespace(status=200, url=page.url)
-    page.title.return_value = page_title
-    page.viewport_size = viewport_size or {"width": 1440, "height": 900}
     body = FakeLocator(body_text)
-    page.content.side_effect = lambda: f"<html><body>{body.text}</body></html>"
-
-    main_frame = MagicMock()
-    main_frame.url = page.url
-    page.frames = [main_frame]
-    page.main_frame = main_frame
-    event_handlers = {}
-    page.event_handlers = event_handlers
-    page.main_document_state = {
-        "bodyInnerHTMLLength": len(body.text),
-        "bodyTextContentLength": len(body.text),
-        "bodyInnerTextLength": len(body.text),
-        "bodyChildElementCount": 1,
-        "bodyChildren": [
-            {
-                "tagName": "DIV",
-                "name": "",
-                "id": "root",
-                "classes": "app",
-            }
-        ],
-        "documentOuterHTMLLength": len(page.content()),
-        "bodyDisplay": "block",
-        "bodyVisibility": "visible",
-        "bodyOpacity": "1",
-    }
-
-    def register_event_handler(event_name, callback):
-        event_handlers.setdefault(event_name, []).append(callback)
-
-    page.on.side_effect = register_event_handler
-
-    def evaluate(expression):
-        if "bodyInnerHTMLLength" in expression:
-            return page.main_document_state
-        if "bodyTextLength" in expression:
-            return {
-                "readyState": "complete",
-                "bodyTextLength": len(body.text),
-            }
-        return {
-            "document.documentElement.lang": page_language or "",
-            "navigator.userAgent": user_agent,
-        }[expression]
-
-    page.evaluate.side_effect = evaluate
 
     def click_best_available():
         if after_click is not None:
@@ -135,14 +80,6 @@ def scraper_for(
             raise consent_click_error
         if after_consent is not None:
             body.text = after_consent
-        if consent_navigation_url is not None:
-            page.url = consent_navigation_url
-            main_frame.url = consent_navigation_url
-            for callback in event_handlers.get("framenavigated", []):
-                callback(main_frame)
-        if consent_triggers_load:
-            for callback in event_handlers.get("load", []):
-                callback()
         consent_control.item_count = 0
 
     heading = FakeLocator(
@@ -201,6 +138,69 @@ def scraper_for(
     return TicketmasterPriceScraper(browser=browser), page, best_control
 
 
+def test_camoufox_browser_is_reused_and_closed(monkeypatch):
+    _, first_page, _ = scraper_for(
+        "Search For Tickets\nNormal ticket PLN 49"
+    )
+    _, second_page, _ = scraper_for(
+        "Search For Tickets\nNormal ticket PLN 49"
+    )
+    local_browser = MagicMock()
+    local_context = MagicMock()
+    local_context.new_page.side_effect = [first_page, second_page]
+    local_browser.new_context.return_value = local_context
+    playwright = MagicMock()
+    playwright_manager = MagicMock()
+    playwright_manager.start.return_value = playwright
+    sync_playwright = MagicMock(return_value=playwright_manager)
+    new_browser = MagicMock(return_value=local_browser)
+    monkeypatch.setattr(
+        scraper_module,
+        "sync_playwright",
+        sync_playwright,
+    )
+    monkeypatch.setattr(
+        scraper_module,
+        "NewBrowser",
+        new_browser,
+    )
+    with TicketmasterPriceScraper() as scraper:
+        for event_url in (
+            "https://example.test/event-1",
+            "https://example.test/event-2",
+        ):
+            assert scraper.scrape(event_url) == Admission(
+                False, 49, 49, "PLN"
+            )
+
+    new_browser.assert_called_once_with(
+        playwright,
+        headless=False,
+        locale="pl-PL",
+        os="macos",
+    )
+    sync_playwright.assert_called_once_with()
+    playwright_manager.start.assert_called_once_with()
+    local_browser.new_context.assert_called_once_with(
+        locale="pl-PL",
+        timezone_id="Europe/Warsaw",
+        viewport={"width": 1440, "height": 900},
+    )
+    assert local_context.new_page.call_count == 2
+    for page in (first_page, second_page):
+        page.goto.assert_called_once()
+        page.wait_for_timeout.assert_called_once_with(5_000)
+        call_names = [record[0] for record in page.mock_calls]
+        assert (
+            call_names.index("goto")
+            < call_names.index("wait_for_timeout")
+            < call_names.index("locator")
+        )
+        page.close.assert_called_once_with()
+    local_browser.close.assert_called_once_with()
+    playwright.stop.assert_called_once_with()
+
+
 def test_scrape_extracts_two_prices_as_range():
     scraper, page, best_control = scraper_for(
         "Search For Tickets\nNormal ticket PLN 63.60 each\n"
@@ -227,11 +227,7 @@ def test_scrape_accepts_english_consent(consent_text, caplog):
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 1
-    assert page.wait_for_timeout.call_args_list == [
-        call(1_000),
-        call(2_000),
-        call(2_000),
-    ]
+    page.wait_for_timeout.assert_called_once_with(1_000)
     assert f"consent control found matched text='{consent_text}'" in caplog.text
     assert f"consent clicked matched text='{consent_text}'" in caplog.text
 
@@ -243,8 +239,6 @@ def test_scrape_accepts_polish_consent(caplog):
         privacy_text,
         consent_text=consent_text,
         after_consent="Bilety\nBilet normalny 63,60 zł",
-        consent_navigation_url="https://example.test/after-consent",
-        consent_triggers_load=True,
         section_marker="Bilety",
         page_language="pl-PL",
     )
@@ -254,237 +248,9 @@ def test_scrape_accepts_polish_consent(caplog):
 
     assert result == Admission(False, 63.60, 63.60, "PLN")
     assert page.consent_control.click_count == 1
-    assert page.wait_for_timeout.call_args_list == [
-        call(1_000),
-        call(2_000),
-        call(2_000),
-    ]
+    page.wait_for_timeout.assert_called_once_with(1_000)
     assert "consent control found matched text='Akceptuję'" in caplog.text
     assert "consent clicked matched text='Akceptuję'" in caplog.text
-    checkpoints = [
-        record.getMessage()
-        for record in caplog.records
-        if "consent readiness checkpoint=" in record.getMessage()
-    ]
-    assert len(checkpoints) == 5
-    assert "checkpoint=before-click" in checkpoints[0]
-    assert "page_url='https://example.test/current-event'" in checkpoints[0]
-    assert "ready_state='complete'" in checkpoints[0]
-    assert "title='Ticketmaster Event'" in checkpoints[0]
-    assert f"body_text_length={len(privacy_text)}" in checkpoints[0]
-    assert "content_length=" in checkpoints[0]
-    assert "frame_count=1" in checkpoints[0]
-    assert "frame_urls=['https://example.test/current-event']" in checkpoints[0]
-    checkpoint_names = [
-        message.split("checkpoint=", 1)[1].split(" ", 1)[0]
-        for message in checkpoints
-    ]
-    assert checkpoint_names == [
-        "before-click",
-        "immediately-after-click",
-        "after-1s",
-        "after-3s",
-        "after-5s",
-    ]
-    assert all(
-        "page_url='https://example.test/after-consent'" in message
-        for message in checkpoints[1:]
-    )
-    assert all("navigation_observed=True" in message for message in checkpoints[1:])
-    assert all(
-        "main_frame_navigation_observed=True" in message
-        for message in checkpoints[1:]
-    )
-    assert all("load_observed=True" in message for message in checkpoints[1:])
-    assert "consent post-click events navigation_observed=True" in caplog.text
-    assert "main_frame_navigation_observed=True" in caplog.text
-    assert "load_observed=True" in caplog.text
-
-
-def test_consent_readiness_diagnostics_run_only_for_first_scraped_event(caplog):
-    scraper, page, _ = scraper_for(
-        "Privacy choices",
-        consent_text="Accept Cookies",
-        after_consent="Search For Tickets\nNormal ticket PLN 49",
-    )
-
-    with caplog.at_level(logging.INFO):
-        first_result = scraper.scrape("https://example.test/event-1")
-        page.consent_control.item_count = 1
-        second_result = scraper.scrape("https://example.test/event-2")
-
-    assert first_result == Admission(False, 49, 49, "PLN")
-    assert second_result == Admission(False, 49, 49, "PLN")
-    assert caplog.text.count("consent readiness checkpoint=before-click") == 1
-    assert caplog.text.count("consent readiness checkpoint=") == 5
-    assert caplog.text.count("first-event main document response") == 1
-    assert caplog.text.count("first-event main document diagnostic body_") == 1
-    assert page.on.call_count == 6
-    assert page.wait_for_timeout.call_args_list == [
-        call(1_000),
-        call(2_000),
-        call(2_000),
-        call(1_000),
-    ]
-
-
-def test_first_event_diagnostics_capture_dom_and_browser_failures(caplog):
-    scraper, page, _ = scraper_for(
-        "Privacy choices",
-        consent_text="Accept Cookies",
-        after_consent="",
-        section_marker=None,
-        page_title="",
-    )
-    page.main_document_state = {
-        "bodyInnerHTMLLength": 249_000,
-        "bodyTextContentLength": 0,
-        "bodyInnerTextLength": 0,
-        "bodyChildElementCount": 2,
-        "bodyChildren": [
-            {
-                "tagName": "DIV",
-                "name": "application",
-                "id": "root",
-                "classes": "hidden shell",
-            },
-            {
-                "tagName": "IFRAME",
-                "name": "analytics",
-                "id": "",
-                "classes": "",
-            },
-        ],
-        "documentOuterHTMLLength": 250_000,
-        "bodyDisplay": "none",
-        "bodyVisibility": "hidden",
-        "bodyOpacity": "0",
-    }
-
-    def goto(*args, **kwargs):
-        handlers = page.event_handlers
-        handlers["pageerror"][0](
-            SimpleNamespace(message="bootstrap failed token=page-secret")
-        )
-        handlers["console"][0](
-            SimpleNamespace(
-                type="warning",
-                text=(
-                    "hydration warning https://www.ticketmaster.pl/app.js?token=url-secret "
-                    "cookie=session-secret"
-                ),
-            )
-        )
-        handlers["console"][0](
-            SimpleNamespace(type="info", text="ignored console info")
-        )
-        handlers["requestfailed"][0](
-            SimpleNamespace(
-                url="https://assets.example.test/app.js?token=request-secret",
-                failure="net::ERR_FAILED api_key=reason-secret",
-            )
-        )
-        handlers["response"][0](
-            SimpleNamespace(
-                url="https://www.ticketmaster.pl/api/bootstrap?token=response-secret",
-                status=503,
-            )
-        )
-        handlers["response"][0](
-            SimpleNamespace(url="https://ads.example.test/blocked", status=500)
-        )
-        handlers["response"][0](
-            SimpleNamespace(url="https://www.ticketmaster.pl/healthy", status=204)
-        )
-        return SimpleNamespace(
-            url="https://www.ticketmaster.pl/event/123?token=main-secret",
-            status=200,
-        )
-
-    page.goto.side_effect = goto
-
-    with caplog.at_level(logging.INFO):
-        assert scraper.scrape("https://example.test/event") is None
-
-    assert (
-        "first-event main document response status=200 "
-        "url='https://www.ticketmaster.pl/event/123'"
-    ) in caplog.text
-    assert "captured failures browser_count=2 network_count=2" in caplog.text
-    assert "kind': 'pageerror'" in caplog.text
-    assert "bootstrap failed token=<redacted>" in caplog.text
-    assert "kind': 'console'" in caplog.text
-    assert "https://www.ticketmaster.pl/app.js" in caplog.text
-    assert "cookie=<redacted>" in caplog.text
-    assert "ignored console info" not in caplog.text
-    assert "kind': 'requestfailed'" in caplog.text
-    assert "https://assets.example.test/app.js" in caplog.text
-    assert "api_key=<redacted>" in caplog.text
-    assert "kind': 'non-2xx-response'" in caplog.text
-    assert "https://www.ticketmaster.pl/api/bootstrap" in caplog.text
-    assert "status': 503" in caplog.text
-    assert "https://ads.example.test/blocked" not in caplog.text
-    assert "https://www.ticketmaster.pl/healthy" not in caplog.text
-    assert "body_inner_html_length=249000" in caplog.text
-    assert "body_text_content_length=0" in caplog.text
-    assert "body_inner_text_length=0" in caplog.text
-    assert "body_child_element_count=2" in caplog.text
-    assert "'id': 'root'" in caplog.text
-    assert "'classes': 'hidden shell'" in caplog.text
-    assert "document_outer_html_length=250000" in caplog.text
-    assert "body_display='none'" in caplog.text
-    assert "body_visibility='hidden'" in caplog.text
-    assert "body_opacity='0'" in caplog.text
-    assert "secret" not in caplog.text
-
-
-def test_first_event_browser_diagnostics_are_bounded(caplog):
-    scraper, page, _ = scraper_for(
-        "Privacy choices",
-        consent_text="Accept Cookies",
-        after_consent="Search For Tickets\nNormal ticket PLN 49",
-    )
-
-    def goto(*args, **kwargs):
-        handlers = page.event_handlers
-        for index in range(25):
-            handlers["pageerror"][0](
-                SimpleNamespace(message=f"bounded page error {index}")
-            )
-            handlers["requestfailed"][0](
-                SimpleNamespace(
-                    url=f"https://assets.example.test/{index}",
-                    failure=f"bounded request failure {index}",
-                )
-            )
-        return SimpleNamespace(
-            url="https://www.ticketmaster.pl/event/123",
-            status=200,
-        )
-
-    page.goto.side_effect = goto
-
-    with caplog.at_level(logging.INFO):
-        assert scraper.scrape("https://example.test/event") == Admission(
-            False, 49, 49, "PLN"
-        )
-
-    browser_failures = [
-        record
-        for record in caplog.records
-        if "first-event browser failure" in record.getMessage()
-    ]
-    network_failures = [
-        record
-        for record in caplog.records
-        if "first-event network failure" in record.getMessage()
-    ]
-    assert len(browser_failures) == 20
-    assert len(network_failures) == 20
-    assert "bounded page error 19" in caplog.text
-    assert "bounded page error 20" not in caplog.text
-    assert "bounded request failure 19" in caplog.text
-    assert "bounded request failure 20" not in caplog.text
 
 
 def test_scrape_continues_without_consent_dialog(caplog):
@@ -553,26 +319,6 @@ def test_scrape_extracts_prices_from_polish_ticket_section(
     )
 
 
-def test_scrape_uses_local_ticketmaster_browser_settings():
-    scraper, _, _ = scraper_for("Search For Tickets\nNormal ticket PLN 49")
-
-    scraper.scrape("https://example.test/event")
-
-    scraper._browser.new_context.assert_called_once_with(
-        locale="pl-PL",
-        timezone_id="Europe/Warsaw",
-        viewport={"width": 1440, "height": 900},
-    )
-
-
-def test_scrape_extracts_one_price_as_fixed_price():
-    scraper, _, _ = scraper_for("Search For Tickets\nNormal ticket PLN 49 zł")
-
-    result = scraper.scrape("https://example.test/event")
-
-    assert result == Admission(False, 49, 49, "PLN")
-
-
 def test_scrape_returns_none_for_verification_page():
     scraper, _, _ = scraper_for("Let's Get Your Identity Verified - not a bot")
 
@@ -590,11 +336,14 @@ def test_scrape_ignores_malformed_price_text():
     )
 
 
-def test_scrape_returns_none_when_navigation_fails():
+def test_scrape_returns_none_and_logs_when_navigation_fails(caplog):
     scraper, page, _ = scraper_for("Search For Tickets")
     page.goto.side_effect = RuntimeError("navigation failed")
 
-    assert scraper.scrape("https://example.test/event") is None
+    with caplog.at_level(logging.WARNING):
+        assert scraper.scrape("https://example.test/event") is None
+
+    assert "Ticketmaster navigation failed" in caplog.text
 
 
 def test_scrape_extracts_prices_without_known_ticket_section_marker():
@@ -606,34 +355,6 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
     assert scraper.scrape("https://example.test/event") == Admission(
         False, 37.10, 63.60, "PLN"
     )
-
-
-def test_scrape_logs_diagnostics_without_prices_control_or_ticket_marker(caplog):
-    visible_prefix = "pArDoN " + "x" * 1_493
-    body_text = visible_prefix + "not-in-visible-prefix"
-    scraper, _, _ = scraper_for(
-        body_text,
-        section_marker=None,
-        page_language="pl-PL",
-        page_title="YOUR BROWSING ACTIVITY HAS BEEN PAUSED",
-        user_agent="diagnostic-user-agent",
-        viewport_size={"width": 1280, "height": 720},
-    )
-
-    with caplog.at_level(logging.WARNING):
-        assert scraper.scrape("https://example.test/event") is None
-
-    assert "page_url='https://example.test/current-event'" in caplog.text
-    assert "title='YOUR BROWSING ACTIVITY HAS BEEN PAUSED'" in caplog.text
-    assert "document_element_lang='pl-PL'" in caplog.text
-    assert f"body_text_length={len(body_text)}" in caplog.text
-    assert repr(visible_prefix) in caplog.text
-    assert "not-in-visible-prefix" not in caplog.text
-    assert "challenge_detected=True" in caplog.text
-    assert "Your Browsing Activity Has Been Paused" in caplog.text
-    assert "Pardon" in caplog.text
-    assert "user_agent='diagnostic-user-agent'" in caplog.text
-    assert "viewport_size={'width': 1280, 'height': 720}" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -687,12 +408,15 @@ def test_scrape_clicks_polish_best_available_control(caplog):
     assert f"best-available control matched text='{control_text}'" in caplog.text
 
 
-def test_scrape_returns_none_when_best_available_control_is_absent():
+def test_scrape_logs_when_best_available_control_is_absent(caplog):
     scraper, _, _ = scraper_for(
         "Search For Tickets\nNo prices yet",
     )
 
-    assert scraper.scrape("https://example.test/event") is None
+    with caplog.at_level(logging.WARNING):
+        assert scraper.scrape("https://example.test/event") is None
+
+    assert "no price found and no best-available control" in caplog.text
 
 
 def test_scrape_returns_none_when_best_available_click_fails():
@@ -717,25 +441,20 @@ def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
     with caplog.at_level(logging.INFO):
         assert scraper.scrape("https://example.test/event") is None
 
-    assert "pricing unavailable diagnostics" not in caplog.text
-    page.title.assert_not_called()
-    page.evaluate.assert_not_called()
+    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert "no price found after best-available click" in caplog.text
 
 
-def test_scrape_logs_diagnostics_without_secrets(caplog):
-    secret = "secret-token-value"
-    scraper, page, _ = scraper_for(
-        f"Search For Tickets\nNormal ticket PLN 49\n{secret}",
+def test_scrape_logs_start_and_found_price_without_body_text(caplog):
+    body_only_text = "body-only-value"
+    scraper, _, _ = scraper_for(
+        f"Search For Tickets\nNormal ticket PLN 49\n{body_only_text}",
     )
 
     with caplog.at_level(logging.INFO):
         scraper.scrape("https://example.test/event")
 
+    assert "Starting Ticketmaster price scrape" in caplog.text
     assert "price extraction phase=direct count=1" in caplog.text
     assert "final admission=" in caplog.text
-    assert "found=false" not in caplog.text
-    assert "clicked=false" not in caplog.text
-    assert "pricing unavailable diagnostics" not in caplog.text
-    assert secret not in caplog.text
-    page.title.assert_not_called()
-    page.evaluate.assert_not_called()
+    assert body_only_text not in caplog.text
