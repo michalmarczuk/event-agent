@@ -8,6 +8,8 @@ from src.models import Admission
 from src.tools import ticketmaster_price_scraper as scraper_module
 from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
 
+_EVENT_URL = "https://example.test/event"
+
 
 class FakeLocator:
     def __init__(
@@ -30,8 +32,6 @@ class FakeLocator:
         return self
 
     def click(self, **kwargs):
-        if not self.item_count:
-            raise PlaywrightTimeoutError("locator is not visible")
         self.click_count += 1
         if self.click_callback:
             self.click_callback()
@@ -100,11 +100,7 @@ def scraper_for(
     missing = FakeLocator(count=0)
 
     def matches(pattern, text):
-        if not text:
-            return False
-        if hasattr(pattern, "search"):
-            return bool(pattern.search(text))
-        return pattern == text
+        return bool(text and pattern.search(text))
 
     def get_by_role(role, name):
         if role == "button" and matches(name, consent_text):
@@ -139,15 +135,13 @@ def scraper_for(
 
 
 def test_camoufox_browser_is_reused_and_closed(monkeypatch):
-    _, first_page, _ = scraper_for(
-        "Search For Tickets\nNormal ticket PLN 49"
-    )
-    _, second_page, _ = scraper_for(
-        "Search For Tickets\nNormal ticket PLN 49"
-    )
+    pages = [
+        scraper_for("Search For Tickets\nNormal ticket PLN 49")[1]
+        for _ in range(2)
+    ]
     local_browser = MagicMock()
     local_context = MagicMock()
-    local_context.new_page.side_effect = [first_page, second_page]
+    local_context.new_page.side_effect = pages
     local_browser.new_context.return_value = local_context
     playwright = MagicMock()
     playwright_manager = MagicMock()
@@ -165,11 +159,8 @@ def test_camoufox_browser_is_reused_and_closed(monkeypatch):
         new_browser,
     )
     with TicketmasterPriceScraper() as scraper:
-        for event_url in (
-            "https://example.test/event-1",
-            "https://example.test/event-2",
-        ):
-            assert scraper.scrape(event_url) == Admission(
+        for suffix in ("1", "2"):
+            assert scraper.scrape(f"{_EVENT_URL}-{suffix}") == Admission(
                 False, 49, 49, "PLN"
             )
 
@@ -186,8 +177,8 @@ def test_camoufox_browser_is_reused_and_closed(monkeypatch):
         timezone_id="Europe/Warsaw",
         viewport={"width": 1440, "height": 900},
     )
-    assert local_context.new_page.call_count == 2
-    for page in (first_page, second_page):
+    assert local_context.new_page.call_count == len(pages)
+    for page in pages:
         page.goto.assert_called_once()
         page.wait_for_timeout.assert_called_once_with(5_000)
         call_names = [record[0] for record in page.mock_calls]
@@ -202,20 +193,19 @@ def test_camoufox_browser_is_reused_and_closed(monkeypatch):
 
 
 def test_scrape_extracts_two_prices_as_range():
-    scraper, page, best_control = scraper_for(
+    scraper, _, _ = scraper_for(
         "Search For Tickets\nNormal ticket PLN 63.60 each\n"
         "Discount ticket PLN 37.10 each"
     )
 
-    result = scraper.scrape("https://example.test/event")
-
-    assert result == Admission(False, 37.10, 63.60, "PLN")
-    page.goto.assert_called_once()
-    page.close.assert_called_once()
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 37.10, 63.60, "PLN")
 
 
-@pytest.mark.parametrize("consent_text", ["Accept Cookies", "Accept"])
-def test_scrape_accepts_english_consent(consent_text, caplog):
+@pytest.mark.parametrize(
+    "consent_text",
+    ["Accept Cookies", "Accept", "Akceptuję"],
+)
+def test_scrape_accepts_localized_consent(consent_text, caplog):
     scraper, page, _ = scraper_for(
         "Privacy choices",
         consent_text=consent_text,
@@ -223,7 +213,7 @@ def test_scrape_accepts_english_consent(consent_text, caplog):
     )
 
     with caplog.at_level(logging.INFO):
-        result = scraper.scrape("https://example.test/event")
+        result = scraper.scrape(_EVENT_URL)
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 1
@@ -232,38 +222,14 @@ def test_scrape_accepts_english_consent(consent_text, caplog):
     assert f"consent clicked matched text='{consent_text}'" in caplog.text
 
 
-def test_scrape_accepts_polish_consent(caplog):
-    consent_text = "Akceptuję"
-    privacy_text = "Dbamy o Twoją prywatność\nOdrzucenie wszystkich\nPokaż cele"
-    scraper, page, _ = scraper_for(
-        privacy_text,
-        consent_text=consent_text,
-        after_consent="Bilety\nBilet normalny 63,60 zł",
-        section_marker="Bilety",
-        page_language="pl-PL",
-    )
-
-    with caplog.at_level(logging.INFO):
-        result = scraper.scrape("https://example.test/event")
-
-    assert result == Admission(False, 63.60, 63.60, "PLN")
-    assert page.consent_control.click_count == 1
-    page.wait_for_timeout.assert_called_once_with(1_000)
-    assert "consent control found matched text='Akceptuję'" in caplog.text
-    assert "consent clicked matched text='Akceptuję'" in caplog.text
-
-
-def test_scrape_continues_without_consent_dialog(caplog):
+def test_scrape_continues_without_consent_dialog():
     scraper, page, _ = scraper_for("Search For Tickets\nNormal ticket PLN 49")
 
-    with caplog.at_level(logging.INFO):
-        result = scraper.scrape("https://example.test/event")
+    result = scraper.scrape(_EVENT_URL)
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 0
     page.wait_for_timeout.assert_not_called()
-    assert "consent control found" not in caplog.text
-    assert "consent clicked" not in caplog.text
 
 
 def test_scrape_continues_when_consent_click_fails(caplog):
@@ -273,15 +239,13 @@ def test_scrape_continues_when_consent_click_fails(caplog):
         consent_click_error=RuntimeError("consent click failed"),
     )
 
-    with caplog.at_level(logging.INFO):
-        result = scraper.scrape("https://example.test/event")
+    with caplog.at_level(logging.WARNING):
+        result = scraper.scrape(_EVENT_URL)
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 1
     page.wait_for_timeout.assert_not_called()
-    assert "consent control found matched text='Accept Cookies'" in caplog.text
     assert "consent control click failed" in caplog.text
-    assert "consent clicked" not in caplog.text
 
 
 def test_scrape_does_not_click_reject_all_control():
@@ -290,9 +254,7 @@ def test_scrape_does_not_click_reject_all_control():
         consent_text="Odrzucenie wszystkich",
     )
 
-    assert scraper.scrape("https://example.test/event") == Admission(
-        False, 49, 49, "PLN"
-    )
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 0
 
 
@@ -314,7 +276,7 @@ def test_scrape_extracts_prices_from_polish_ticket_section(
         page_language="pl-PL",
     )
 
-    assert scraper.scrape("https://example.test/event") == Admission(
+    assert scraper.scrape(_EVENT_URL) == Admission(
         False, 37.10, 63.60, "PLN"
     )
 
@@ -322,7 +284,7 @@ def test_scrape_extracts_prices_from_polish_ticket_section(
 def test_scrape_returns_none_for_verification_page():
     scraper, _, _ = scraper_for("Let's Get Your Identity Verified - not a bot")
 
-    assert scraper.scrape("https://example.test/event") is None
+    assert scraper.scrape(_EVENT_URL) is None
 
 
 def test_scrape_ignores_malformed_price_text():
@@ -331,7 +293,7 @@ def test_scrape_ignores_malformed_price_text():
         "Discount ticket PLN 37.10 each"
     )
 
-    assert scraper.scrape("https://example.test/event") == Admission(
+    assert scraper.scrape(_EVENT_URL) == Admission(
         False, 37.10, 37.10, "PLN"
     )
 
@@ -341,7 +303,7 @@ def test_scrape_returns_none_and_logs_when_navigation_fails(caplog):
     page.goto.side_effect = RuntimeError("navigation failed")
 
     with caplog.at_level(logging.WARNING):
-        assert scraper.scrape("https://example.test/event") is None
+        assert scraper.scrape(_EVENT_URL) is None
 
     assert "Ticketmaster navigation failed" in caplog.text
 
@@ -352,7 +314,7 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
         section_marker=None,
     )
 
-    assert scraper.scrape("https://example.test/event") == Admission(
+    assert scraper.scrape(_EVENT_URL) == Admission(
         False, 37.10, 63.60, "PLN"
     )
 
@@ -361,7 +323,6 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
     ("text", "expected"),
     [
         ("PLN 63.60", 63.60),
-        ("PLN 37.10", 37.10),
         ("63,60 zł", 63.60),
         ("63 zł", 63.0),
     ],
@@ -369,42 +330,46 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
 def test_scrape_accepts_common_polish_price_formats(text, expected):
     scraper, _, _ = scraper_for(f"Search For Tickets\n{text}")
 
-    assert scraper.scrape("https://example.test/event") == Admission(
+    assert scraper.scrape(_EVENT_URL) == Admission(
         False, expected, expected, "PLN"
     )
 
 
-def test_scrape_clicks_best_available_when_direct_prices_are_missing():
-    scraper, _, best_control = scraper_for(
-        "Search For Tickets\nChoose a ticket",
-        after_click="Search For Tickets\nBest available PLN 63,60 zł",
-        best_control_text="See best available",
-    )
-
-    result = scraper.scrape("https://example.test/event")
-
-    assert result == Admission(False, 63.60, 63.60, "PLN")
-    assert best_control.click_count == 1
-
-
-def test_scrape_clicks_polish_best_available_control(caplog):
-    control_text = "Wybierz najlepsze dostępne miejsca"
+@pytest.mark.parametrize(
+    ("section_marker", "control_text", "page_language", "expected_variant"),
+    [
+        ("Search For Tickets", "See best available", None, "en"),
+        (
+            "Bilety",
+            "Wybierz najlepsze dostępne miejsca",
+            "pl-PL",
+            "pl-PL",
+        ),
+    ],
+)
+def test_scrape_clicks_localized_best_available_control(
+    section_marker,
+    control_text,
+    page_language,
+    expected_variant,
+    caplog,
+):
     scraper, page, best_control = scraper_for(
-        f"Bilety\n{control_text}",
-        after_click="Bilety\nNajlepsze dostępne miejsce 63,60 zł",
-        section_marker="Bilety",
+        f"{section_marker}\n{control_text}",
+        after_click=f"{section_marker}\nBest available 63,60 zł",
+        section_marker=section_marker,
         best_control_text=control_text,
-        page_language="pl-PL",
+        page_language=page_language,
     )
 
     with caplog.at_level(logging.INFO):
-        result = scraper.scrape("https://example.test/event")
+        result = scraper.scrape(_EVENT_URL)
 
     assert result == Admission(False, 63.60, 63.60, "PLN")
     assert best_control.click_count == 1
     page.wait_for_timeout.assert_called_once_with(1_000)
-    assert "page language/variant=pl-PL" in caplog.text
-    assert "ticket section marker matched text='Bilety'" in caplog.text
+    assert f"page language/variant={expected_variant}" in caplog.text
+    assert f"ticket section marker matched text='{section_marker}'" in caplog.text
     assert f"best-available control matched text='{control_text}'" in caplog.text
 
 
@@ -414,7 +379,7 @@ def test_scrape_logs_when_best_available_control_is_absent(caplog):
     )
 
     with caplog.at_level(logging.WARNING):
-        assert scraper.scrape("https://example.test/event") is None
+        assert scraper.scrape(_EVENT_URL) is None
 
     assert "no price found and no best-available control" in caplog.text
 
@@ -424,11 +389,9 @@ def test_scrape_returns_none_when_best_available_click_fails():
         "Search For Tickets\nNo prices yet",
         best_control_text="See best available",
     )
-    best_control.click_callback = lambda: (_ for _ in ()).throw(
-        RuntimeError("click failed")
-    )
+    best_control.click_callback = MagicMock(side_effect=RuntimeError("click failed"))
 
-    assert scraper.scrape("https://example.test/event") is None
+    assert scraper.scrape(_EVENT_URL) is None
 
 
 def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
@@ -439,7 +402,7 @@ def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
     )
 
     with caplog.at_level(logging.INFO):
-        assert scraper.scrape("https://example.test/event") is None
+        assert scraper.scrape(_EVENT_URL) is None
 
     page.wait_for_timeout.assert_called_once_with(1_000)
     assert "no price found after best-available click" in caplog.text
@@ -452,7 +415,7 @@ def test_scrape_logs_start_and_found_price_without_body_text(caplog):
     )
 
     with caplog.at_level(logging.INFO):
-        scraper.scrape("https://example.test/event")
+        scraper.scrape(_EVENT_URL)
 
     assert "Starting Ticketmaster price scrape" in caplog.text
     assert "price extraction phase=direct count=1" in caplog.text

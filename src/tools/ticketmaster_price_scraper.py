@@ -44,13 +44,13 @@ _TICKET_SECTION_PATTERN = _label_pattern(
 _BEST_AVAILABLE_PATTERN = _label_pattern(
     _ENGLISH_BEST_AVAILABLE_LABELS + _POLISH_BEST_AVAILABLE_LABELS
 )
-_POLISH_UI_LABELS = _POLISH_TICKET_SECTION_LABELS + _POLISH_BEST_AVAILABLE_LABELS
-_ENGLISH_UI_LABELS = _ENGLISH_TICKET_SECTION_LABELS + _ENGLISH_BEST_AVAILABLE_LABELS
 _POLISH_UI_PATTERN = _label_pattern(
-    _POLISH_UI_LABELS,
+    _POLISH_TICKET_SECTION_LABELS + _POLISH_BEST_AVAILABLE_LABELS,
     whole_word_labels=_POLISH_TICKET_SECTION_LABELS[-1:],
 )
-_ENGLISH_UI_PATTERN = _label_pattern(_ENGLISH_UI_LABELS)
+_ENGLISH_UI_PATTERN = _label_pattern(
+    _ENGLISH_TICKET_SECTION_LABELS + _ENGLISH_BEST_AVAILABLE_LABELS
+)
 _POLISH_CURRENCY_PATTERN = re.compile(r"\bzł\b", re.IGNORECASE)
 _CONSENT_ACCEPT_PATTERN = re.compile(
     r"^\s*(?:Accept\s+Cookies|Accept|Akceptuję)\s*$",
@@ -66,7 +66,7 @@ _BLOCKED_PAGE_PATTERN = re.compile(
 class TicketmasterPriceScraper:
     """Extract visible Ticketmaster ticket prices from public event pages."""
 
-    def __init__(self, browser: Any | None = None, timeout_ms: int = 15_000):
+    def __init__(self, browser: Any | None = None, timeout_ms: int = 15_000) -> None:
         self._browser = browser
         self._context = None
         self._timeout_ms = timeout_ms
@@ -189,13 +189,20 @@ class TicketmasterPriceScraper:
                                     event_url,
                                 )
 
-                admission = _admission_from_prices(prices) if prices else None
-                if admission is not None:
-                    logger.info(
-                        "Ticketmaster final admission=%s url=%s",
-                        admission,
-                        event_url,
-                    )
+                if not prices:
+                    return None
+
+                admission = Admission(
+                    is_free=False,
+                    price_min=min(prices),
+                    price_max=max(prices),
+                    currency="PLN",
+                )
+                logger.info(
+                    "Ticketmaster final admission=%s url=%s",
+                    admission,
+                    event_url,
+                )
                 return admission
             finally:
                 page.close()
@@ -330,11 +337,10 @@ class TicketmasterPriceScraper:
 
 
 def _prices_from_text(text: str) -> list[float]:
-    prices = []
-    for match in _PRICE_PATTERN.finditer(text):
-        value = match.group(1) or match.group(2)
-        prices.append(float(value.replace(",", ".")))
-    return prices
+    return [
+        float((match.group(1) or match.group(2)).replace(",", "."))
+        for match in _PRICE_PATTERN.finditer(text)
+    ]
 
 
 def _first_match_if_visible(locator: Any) -> Any | None:
@@ -361,15 +367,3 @@ def _locator_text(locator: Any) -> str:
         if value:
             return value.strip()
     return ""
-
-
-def _admission_from_prices(prices: list[float]) -> Admission:
-    if not prices:
-        raise ValueError("Admission requires at least one price")
-
-    return Admission(
-        is_free=False,
-        price_min=min(prices),
-        price_max=max(prices),
-        currency="PLN",
-    )
