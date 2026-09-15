@@ -49,12 +49,18 @@ while [ ! -S "$tailscale_socket" ]; do
     sleep 1
 done
 
+echo "Connecting to Tailscale..."
 tailscale --socket="$tailscale_socket" up \
     --auth-key="file:$auth_file" \
-    --exit-node="$TAILSCALE_EXIT_NODE"
+    --exit-node="$TAILSCALE_EXIT_NODE" \
+    --timeout=30s
+
+echo "Tailscale connected"
+
 rm -f "$auth_file"
 
 export SCRAPER_PROXY_URL=socks5://127.0.0.1:1055
 
+echo "Starting event agent..."
 trap - EXIT HUP INT TERM
 exec xvfb-run -a python src/daily.py
