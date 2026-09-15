@@ -33,6 +33,12 @@ _REQUIRED_VARIABLES = {
 }
 
 
+def load_scraper_proxy_url() -> str | None:
+    """Return the optional proxy URL used by browser price scraping."""
+    load_dotenv()
+    return os.getenv("SCRAPER_PROXY_URL") or None
+
+
 def load_settings() -> Settings:
     load_dotenv()
 

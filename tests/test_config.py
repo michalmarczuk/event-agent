@@ -2,6 +2,17 @@ import src.config as config
 from src.config import SearchLocation
 
 
+def test_load_scraper_proxy_url_is_optional(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    monkeypatch.delenv("SCRAPER_PROXY_URL", raising=False)
+
+    assert config.load_scraper_proxy_url() is None
+
+    monkeypatch.setenv("SCRAPER_PROXY_URL", "socks5://127.0.0.1:1055")
+
+    assert config.load_scraper_proxy_url() == "socks5://127.0.0.1:1055"
+
+
 def test_load_settings_returns_all_environment_values(monkeypatch):
     values = {
         "OPENAI_API_KEY": "openai-test-key",

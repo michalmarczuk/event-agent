@@ -24,7 +24,7 @@ configuration from the sanitized template:
 ```bash
 python -m camoufox fetch
 cp .env.example .env
-# Replace every placeholder in .env.
+# Replace required application placeholders; Tailscale is optional locally.
 python src/daily.py
 ```
 
@@ -35,7 +35,7 @@ virtual display:
 xvfb-run -a python src/daily.py
 ```
 
-## Required Environment Variables
+## Environment Variables
 
 `src/config.py` validates these variables at runtime:
 
@@ -48,23 +48,26 @@ xvfb-run -a python src/daily.py
 - `EVENT_BASE_GEOPOINT`: Precomputed Ticketmaster geohash for the base location.
 - `EVENT_SEARCH_RADIUS_KM`: Positive Ticketmaster search radius in kilometers,
   currently `50`.
+- `SCRAPER_PROXY_URL`: Optional Camoufox proxy server. Leave it unset for direct
+  local access; `scripts/run_hf.sh` sets it internally to the local Tailscale
+  SOCKS5 endpoint.
 
-Use secret values only through the local `.env` file or the deployment environment. Never place real values in documentation, source code, Dockerfiles, or image layers.
+The Hugging Face wrapper reads two deployment variables directly:
+
+- `TAILSCALE_AUTHKEY`: secret used to authenticate the ephemeral HF Job node.
+- `TAILSCALE_EXIT_NODE`: non-secret Tailscale IP or name of the Raspberry Pi
+  exit node, for example `100.89.86.79`.
+
+Use secret values only through the local `.env` file or the deployment
+environment. Never place real values in documentation, source code,
+Dockerfiles, image layers, or command history.
 
 ## Docker
 
-### Current Camoufox limitation
-
-The scraper is Camoufox-only, but the current Dockerfile still installs
-Playwright Chromium and does not run `python -m camoufox fetch`. A fresh image
-can build and start, but Camoufox price enrichment is not yet available until
-the browser payload is added and validated. Enrichment failure is non-fatal, so
-the daily flow can continue while preserving existing Ticketmaster Admission
-data.
-
-The commands below describe the intended container workflow; they do not
-validate live Camoufox scraping in the current image. Xvfb is already present
-for headed execution and is not the missing component.
+The image installs the Camoufox browser payload and its Linux dependencies,
+Tailscale binaries, Xvfb, and tini. It does not install a separate Playwright
+Chromium browser payload. Playwright remains a Python dependency because
+Camoufox uses its API.
 
 Build the image locally:
 
@@ -80,6 +83,12 @@ docker run --rm \
   -v "$PWD/data:/app/data" \
   event-agent:local
 ```
+
+This direct Docker command uses the default
+`xvfb-run -a python src/daily.py` command and does not require Tailscale. The
+image entry point is `tini -g --`; Hugging Face overrides only the command with
+`/app/scripts/run_hf.sh`, which starts its own single Xvfb wrapper after network
+setup.
 
 The Docker image contains no secrets. Credentials are injected at runtime with
 `--env-file` or the hosting platform's secret mechanism.
@@ -103,35 +112,58 @@ sha-<commit-sha>
 
 GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication. Application secrets are not needed to build or test the image.
 
-CI uses browser doubles in the offline unit suite. A successful test run and
-image build therefore do not prove that the Camoufox binary is installed or
-that live Ticketmaster rendering works inside the image.
+CI uses browser doubles in the offline unit suite. The image build fetches and
+verifies the Camoufox payload, but a successful build still does not prove live
+Ticketmaster rendering or exit-node connectivity.
 
 ## Hugging Face Jobs
 
-Hugging Face Jobs is the intended production runtime and scheduler. The command
-below documents the runtime topology, but live browser enrichment remains
-unverified until the Docker image provisions and validates Camoufox. A manual
-run uses the GHCR image, the `cpu-basic` flavor, runtime secrets, configuration,
-and the persistent bucket mount:
+Hugging Face Jobs is the intended production runtime and scheduler. The image's
+default command runs directly through Xvfb, while an HF Job overrides that
+command with `/app/scripts/run_hf.sh`. The wrapper:
+
+1. requires `TAILSCALE_AUTHKEY` and `TAILSCALE_EXIT_NODE`;
+2. starts `tailscaled` with userspace networking and a SOCKS5 listener bound to
+   `127.0.0.1:1055`;
+3. authenticates the ephemeral node and selects the Raspberry Pi exit node;
+4. exports `SCRAPER_PROXY_URL=socks5://127.0.0.1:1055`;
+5. executes the headed Camoufox application through Xvfb.
+
+Camoufox alone receives this proxy setting, so Ticketmaster browser traffic
+leaves through the Raspberry Pi and its home-network public IP. The remaining
+Python HTTP clients are not redirected through the SOCKS5 endpoint.
+
+Before invoking the CLI, export the five secret values and the non-secret
+configuration values in the local shell. A manual run is:
 
 ```bash
 hf jobs run \
+  --name event-agent-tailscale-smoke \
   --flavor cpu-basic \
-  --env MODEL=YOUR_MODEL_NAME \
-  --env EVENT_BASE_LOCATION_NAME=Tychy \
-  --env EVENT_BASE_GEOPOINT=YOUR_TYCHY_GEOHASH \
-  --env EVENT_SEARCH_RADIUS_KM=50 \
+  --env MODEL="$MODEL" \
+  --env EVENT_BASE_LOCATION_NAME="$EVENT_BASE_LOCATION_NAME" \
+  --env EVENT_BASE_GEOPOINT="$EVENT_BASE_GEOPOINT" \
+  --env EVENT_SEARCH_RADIUS_KM="$EVENT_SEARCH_RADIUS_KM" \
+  --env TAILSCALE_EXIT_NODE="$TAILSCALE_EXIT_NODE" \
   -s OPENAI_API_KEY \
   -s TICKETMASTER_API_KEY \
   -s TELEGRAM_BOT_TOKEN \
   -s TELEGRAM_CHAT_ID \
+  -s TAILSCALE_AUTHKEY \
   --volume hf://buckets/mmarczuk/event-agent-data:/app/data \
   ghcr.io/michalmarczuk/event-agent:latest \
-  python src/daily.py
+  /app/scripts/run_hf.sh
 ```
 
-The `-s` values refer to secrets configured in the Hugging Face account. Do not put secret values directly in shell history or commands.
+With bare `-s NAME`, the Hugging Face CLI reads the value from the invoking
+shell and submits it as an encrypted Job secret. Do not use
+`--env TAILSCALE_AUTHKEY=...` or place any secret value directly in the command.
+Prefer the immutable `sha-<commit-sha>` image tag after CI publishes this
+change.
+
+The Raspberry Pi needs only its outbound Tailscale connection and approved exit
+node route. Do not expose the Raspberry Pi or 3proxy to the public internet;
+this runtime does not require a public listener on either one.
 
 ## Hugging Face Scheduled Job
 
@@ -163,13 +195,15 @@ hf jobs scheduled run "15 8 * * *" \
   --env EVENT_BASE_LOCATION_NAME=Tychy \
   --env EVENT_BASE_GEOPOINT=YOUR_TYCHY_GEOHASH \
   --env EVENT_SEARCH_RADIUS_KM=50 \
+  --env TAILSCALE_EXIT_NODE=100.89.86.79 \
   -s OPENAI_API_KEY \
   -s TICKETMASTER_API_KEY \
   -s TELEGRAM_BOT_TOKEN \
   -s TELEGRAM_CHAT_ID \
+  -s TAILSCALE_AUTHKEY \
   --volume hf://buckets/mmarczuk/event-agent-data:/app/data \
   ghcr.io/michalmarczuk/event-agent:latest \
-  python src/daily.py
+  /app/scripts/run_hf.sh
 ```
 
 If a command is unavailable, update the Hugging Face CLI before changing the deployment:
@@ -200,9 +234,25 @@ events can be retried.
 
 ## Troubleshooting
 
-### Missing GitHub secrets
+### Missing runtime secrets
 
-The build workflow does not need application secrets. Verify `OPENAI_API_KEY`, `TICKETMASTER_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured in the Hugging Face runtime instead. `MODEL` must also be supplied as an environment variable.
+The build workflow does not need application secrets. Verify
+`OPENAI_API_KEY`, `TICKETMASTER_API_KEY`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, and `TAILSCALE_AUTHKEY` are present in the shell invoking
+the Hugging Face CLI. `MODEL` and `TAILSCALE_EXIT_NODE` must also be supplied as
+non-secret environment configuration.
+
+### Tailscale bootstrap fails
+
+`scripts/run_hf.sh` deliberately exits before Python starts if the auth key or
+exit-node setting is missing, `tailscaled` cannot start, or `tailscale up`
+fails. Check that the key is reusable, ephemeral, pre-approved when required,
+and authorized to use `autogroup:internet`; check that `proxy-pi` is online and
+approved as an exit node. Do not print the auth key while troubleshooting.
+
+The SOCKS5 listener must remain container-local at `127.0.0.1:1055`. Do not
+open a public port on the Raspberry Pi or expose 3proxy; neither is required by
+this design.
 
 ### GitHub Actions schedule unreliability
 

@@ -18,13 +18,14 @@ per run.
 - Generic provider or browser frameworks without a current requirement
 - LLM-authored prices, delivery markup, or persistence decisions
 - Scraping every discovered event
-- Proxy, custom anti-bot, or CAPTCHA handling
+- Generic proxy-provider abstractions, custom anti-bot, or CAPTCHA handling
 - Live external-service calls in the default test suite
 
 ## End-to-end Flow
 
 ```text
 Hugging Face Scheduled Job
+    -> run_hf.sh starts Tailscale userspace networking
     -> daily.main()
     -> load seen recommendation IDs
     -> OpenAI Responses API agent loop
@@ -32,6 +33,9 @@ Hugging Face Scheduled Job
     -> grounded candidates
     -> OpenAI selects and validates recommendations
     -> Camoufox enriches final Ticketmaster recommendations
+         -> local SOCKS5 endpoint
+         -> Raspberry Pi exit node
+         -> Ticketmaster event pages via home-network egress
     -> deterministic Telegram HTML formatting
     -> Telegram delivery
     -> atomically persist recommended IDs after successful delivery
@@ -52,6 +56,7 @@ Hugging Face Scheduled Job
 | `src/ticketmaster_enrichment.py` | Apply deterministic post-selection price enrichment while isolating scraper failures. |
 | `src/telegram_formatter.py` | Render escaped, deterministic Telegram HTML. |
 | `src/telegram_notifier.py` | Deliver the message through the Telegram Bot API. |
+| `scripts/run_hf.sh` | Establish Hugging Face Tailscale egress and start the headed daily process. |
 
 `src/agent.py` does not know how browser scraping works, and the scraper does
 not know about agent conversations or Telegram. `src/daily.py` is the small
@@ -149,7 +154,9 @@ the scraper releases the browser and Playwright resources it owns.
 
 The current browser settings are headed mode, `pl-PL` locale, a macOS
 fingerprint, the `Europe/Warsaw` timezone, and a 1440×900 viewport. There is no
-proxy or alternate-browser abstraction.
+alternate-browser or proxy-provider abstraction. If `SCRAPER_PROXY_URL` is set,
+the scraper passes that single server URL to Camoufox; when it is absent, the
+local browser behavior is unchanged.
 
 For each production-owned Camoufox page, the scraper:
 
@@ -170,6 +177,7 @@ replaced by a proven condition-based wait.
 | Stage | Behavior | History effect |
 | --- | --- | --- |
 | Configuration, OpenAI, or final validation | The run fails before delivery. | No IDs are saved. |
+| Hugging Face network bootstrap | The wrapper exits before Python starts if required Tailscale setup fails. | No delivery and no history change. |
 | Ticketmaster discovery request | A credential-safe tool error is returned to the LLM. | A failed result grounds no IDs. |
 | Price enrichment | Existing recommendation data is preserved and the batch continues. | No immediate history change. |
 | Telegram delivery | A credential-safe exception propagates. | No IDs are saved. |
@@ -238,8 +246,21 @@ GitHub Actions runs tests and publishes the image to GHCR. Hugging Face Jobs is
 the intended scheduler, and a Hugging Face Storage Bucket provides `/app/data`.
 See [Operations](OPERATIONS.md) for the existing runbook.
 
-The current Dockerfile is not yet aligned with the Camoufox-only scraper: it
-installs Playwright Chromium but does not fetch the Camoufox browser payload.
-Local Camoufox behavior is verified; fresh Docker/Hugging Face browser
-enrichment requires a separate image update and validation. This limitation is
-documented rather than hidden.
+The container has two explicit startup paths:
+
+```text
+Local/default container:
+    tini -> xvfb-run -> python src/daily.py
+
+Hugging Face Job:
+    tini -> scripts/run_hf.sh
+         -> tailscaled userspace SOCKS5 on 127.0.0.1:1055
+         -> Raspberry Pi exit node
+         -> exec xvfb-run -a python src/daily.py
+```
+
+The HF wrapper exports the local SOCKS5 URL as `SCRAPER_PROXY_URL`, so only
+Camoufox browser traffic uses the Raspberry Pi/home-network egress. The
+Ticketmaster API, OpenAI, and Telegram clients retain their normal container
+networking. The Raspberry Pi and any local proxy service are not exposed to the
+public internet.

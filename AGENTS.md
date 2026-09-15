@@ -24,9 +24,13 @@ Read [Architecture](docs/architecture.md) for system behavior and
 - `src/telegram_formatter.py`: deterministic Telegram HTML.
 - `src/telegram_notifier.py`: Telegram transport.
 - `src/history.py`: validated, atomic seen-ID persistence.
-- `src/config.py`: the only module that reads environment variables.
+- `src/config.py`: the only Python application module that reads environment
+  variables; deployment wrappers may read their documented infrastructure
+  variables.
 - `src/daily.py`: composition root and delivery-before-persistence sequencing.
 - `src/models.py`: shared domain dataclasses.
+- `scripts/run_hf.sh`: Hugging Face-only Tailscale bootstrap and headed process
+  startup.
 
 Do not move responsibilities across these boundaries without a concrete need.
 
@@ -68,13 +72,16 @@ Telegram, or browser calls.
 - Create one page per recommendation and close it after that scrape.
 - Preserve the explicit five-second post-navigation render wait until a proven
   condition-based replacement is implemented.
-- Do not add proxy, custom anti-bot/stealth, or CAPTCHA-handling logic without
-  an explicit task.
+- Keep proxy support to the optional `SCRAPER_PROXY_URL` passed directly to
+  Camoufox. Do not add proxy credentials, provider layers, custom anti-bot, or
+  CAPTCHA-handling logic without an explicit task.
 
 ## Security and Runtime State
 
-- Read environment variables only through `src/config.py`; never hardcode or
-  commit secrets.
+- Read Python application environment variables only through `src/config.py`;
+  the HF wrapper may read only its documented Tailscale variables.
+- Treat `TAILSCALE_AUTHKEY` as a secret. Never print, commit, bake into an image,
+  or pass it as a plain Hugging Face `--env` value.
 - Never expose credentials in logs, exceptions, or model-visible tool output.
 - Keep `.env` and runtime `data/seen_events.json` out of Git and Docker build
   context.
@@ -95,8 +102,10 @@ Telegram, or browser calls.
 - Add type hints and concise docstrings to public APIs. Comments should explain
   why, not restate the code.
 
-## Deployment Note
+## Deployment Rules
 
-Do not claim the current Docker image is Camoufox-ready. The Dockerfile still
-provisions Playwright Chromium and does not fetch the Camoufox browser payload;
-aligning and validating that image is a separate deployment task.
+- Keep the default container command usable without Tailscale.
+- Hugging Face runs `/app/scripts/run_hf.sh`, which owns Tailscale userspace
+  networking and then execs the application through Xvfb.
+- Keep the SOCKS5 listener bound to `127.0.0.1`; never expose the Raspberry Pi
+  or 3proxy to the public internet.

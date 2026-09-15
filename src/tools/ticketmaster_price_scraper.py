@@ -7,8 +7,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 try:
+    from ..config import load_scraper_proxy_url
     from ..models import Admission
 except ImportError:  # pragma: no cover - supports script execution
+    from config import load_scraper_proxy_url
     from models import Admission
 
 logger = logging.getLogger(__name__)
@@ -219,11 +221,18 @@ class TicketmasterPriceScraper:
     def _ensure_browser(self):
         if self._browser is None:
             self._playwright = sync_playwright().start()
+            proxy_url = load_scraper_proxy_url()
+            proxy_options = (
+                {"proxy": {"server": proxy_url}}
+                if proxy_url
+                else {}
+            )
             self._browser = NewBrowser(
                 self._playwright,
                 headless=False,
                 locale="pl-PL",
                 os="macos",
+                **proxy_options,
             )
         return self._browser
 

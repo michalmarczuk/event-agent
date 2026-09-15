@@ -134,7 +134,21 @@ def scraper_for(
     return TicketmasterPriceScraper(browser=browser), page, best_control
 
 
-def test_camoufox_browser_is_reused_and_closed(monkeypatch):
+@pytest.mark.parametrize(
+    ("proxy_url", "proxy_options"),
+    [
+        (None, {}),
+        (
+            "socks5://127.0.0.1:1055",
+            {"proxy": {"server": "socks5://127.0.0.1:1055"}},
+        ),
+    ],
+)
+def test_camoufox_browser_uses_optional_proxy_and_is_reused_and_closed(
+    monkeypatch,
+    proxy_url,
+    proxy_options,
+):
     pages = [
         scraper_for("Search For Tickets\nNormal ticket PLN 49")[1]
         for _ in range(2)
@@ -158,6 +172,11 @@ def test_camoufox_browser_is_reused_and_closed(monkeypatch):
         "NewBrowser",
         new_browser,
     )
+    monkeypatch.setattr(
+        scraper_module,
+        "load_scraper_proxy_url",
+        lambda: proxy_url,
+    )
     with TicketmasterPriceScraper() as scraper:
         for suffix in ("1", "2"):
             assert scraper.scrape(f"{_EVENT_URL}-{suffix}") == Admission(
@@ -169,6 +188,7 @@ def test_camoufox_browser_is_reused_and_closed(monkeypatch):
         headless=False,
         locale="pl-PL",
         os="macos",
+        **proxy_options,
     )
     sync_playwright.assert_called_once_with()
     playwright_manager.start.assert_called_once_with()

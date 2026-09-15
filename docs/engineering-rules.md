@@ -31,8 +31,11 @@ refactors must preserve.
 - Create one page per recommendation and close it after that scrape, including
   failure paths.
 - A page-level or scraper-level price failure must not fail the daily run.
-- Do not add proxy, CAPTCHA, or custom anti-bot behavior without an explicit
-  requirement.
+- Keep proxy support to the optional `SCRAPER_PROXY_URL` passed directly to
+  Camoufox. Do not add proxy credentials or provider abstractions without an
+  explicit requirement.
+- Keep Tailscale lifecycle in the Hugging Face runtime wrapper, outside the
+  scraper, agent, and enrichment modules.
 - Keep the current five-second wait after navigation. It is a deliberate,
   temporary Ticketmaster render wait and should be replaced only by a proven
   condition-based wait.
@@ -103,9 +106,14 @@ git diff --check
 
 ## Secrets and Runtime State
 
-- Read environment variables only through `src/config.py`.
+- Read Python application environment variables only through `src/config.py`.
+  Deployment wrappers may read only their documented infrastructure variables.
 - Secrets must come from environment variables and must never be hardcoded or
   committed.
+- Treat `TAILSCALE_AUTHKEY` as a secret: pass it to Hugging Face as an encrypted
+  Job secret and never print it or enable shell tracing around it.
+- Treat `TAILSCALE_EXIT_NODE` and `SCRAPER_PROXY_URL` as non-secret runtime
+  configuration. `scripts/run_hf.sh` normally owns the latter.
 - Never include API keys, bot tokens, or credential-bearing URLs in logs,
   exceptions, or model-visible tool outputs.
 - When an original request exception may contain a credentialed URL, raise the
@@ -129,12 +137,17 @@ git diff --check
 - Add type hints and concise docstrings to public APIs. Comments should explain
   why, not repeat what the code says.
 
-## Deployment Status
+## Deployment Rules
 
-Do not claim that the current Docker image is aligned with the Camoufox-only
-runtime. The Dockerfile still installs Playwright Chromium and does not execute
-`python -m camoufox fetch`. Updating and validating Docker/Hugging Face support
-is a separate deployment task.
+- The default container command must remain usable without Tailscale.
+- Hugging Face must invoke `/app/scripts/run_hf.sh`; network-bootstrap failure
+  must prevent the Python application from starting.
+- The wrapper must use Tailscale userspace networking and keep its SOCKS5
+  listener bound to container-local `127.0.0.1`.
+- The wrapper must `exec` the final Xvfb/Python process so signals reach the
+  application through tini.
+- Do not expose the Raspberry Pi or 3proxy to the public internet. The HF job
+  reaches the exit node through the private tailnet.
 
 See [Architecture](architecture.md), [Operations](OPERATIONS.md), and the
 repository [README](../README.md) for context.

@@ -30,6 +30,7 @@ Ticketmaster Discovery API
     -> grounded candidate events
     -> OpenAI selects recommendations
     -> Camoufox enriches final Ticketmaster recommendations
+       (HF only: SOCKS5 -> Tailscale -> Raspberry Pi exit node)
     -> deterministic Telegram formatting
     -> Telegram delivery
     -> persist recommended IDs after successful delivery
@@ -89,7 +90,8 @@ xvfb-run -a python src/daily.py
 
 ## Configuration
 
-All runtime configuration is read through `src/config.py`.
+Python application configuration is read through `src/config.py`. The Hugging
+Face runtime wrapper separately reads its documented Tailscale variables.
 
 | Variable | Kind | Purpose |
 | --- | --- | --- |
@@ -101,6 +103,9 @@ All runtime configuration is read through `src/config.py`.
 | `EVENT_BASE_LOCATION_NAME` | Configuration | Human-readable search base |
 | `EVENT_BASE_GEOPOINT` | Configuration | Ticketmaster geohash for the search base |
 | `EVENT_SEARCH_RADIUS_KM` | Configuration | Positive search radius in kilometers |
+| `SCRAPER_PROXY_URL` | Optional configuration | Camoufox proxy URL; unset for direct local access and normally set by the HF wrapper |
+| `TAILSCALE_AUTHKEY` | Secret | Authenticates the ephemeral HF Job with the tailnet; read only by `scripts/run_hf.sh` |
+| `TAILSCALE_EXIT_NODE` | Configuration | Tailscale IP or name of the Raspberry Pi exit node; read only by `scripts/run_hf.sh` |
 
 The [.env.example](.env.example) template contains placeholders only. Real values
 belong in an ignored `.env` file or the runtime secret store.
@@ -140,11 +145,13 @@ pytest -q
 GitHub Actions runs tests and publishes the Docker image to GHCR; Hugging Face
 Jobs is the intended scheduler, with `/app/data` mounted as persistent storage.
 
-> **Current Camoufox caveat:** the scraper is Camoufox-only, but the Dockerfile
-> still installs Playwright Chromium and does not run `python -m camoufox fetch`.
-> Local Camoufox execution is verified, but browser price enrichment in a fresh
-> Docker/Hugging Face image is not yet aligned. A separate deployment update is
-> required before containerized browser enrichment can be considered ready.
+The image contains the Camoufox payload, its Linux runtime dependencies,
+Tailscale, Xvfb, and tini. Its default command remains a direct local run through
+Xvfb. On Hugging Face, `/app/scripts/run_hf.sh` joins the tailnet in userspace
+mode and exposes `socks5://127.0.0.1:1055` to Camoufox through
+`SCRAPER_PROXY_URL`. Ticketmaster then sees the Raspberry Pi/home-network egress
+IP. See the [operations runbook](docs/OPERATIONS.md) for the exact command and
+security requirements.
 
 ## Project Structure
 
@@ -156,6 +163,8 @@ Jobs is the intended scheduler, with `/app/data` mounted as persistent storage.
 │   ├── architecture.md
 │   ├── engineering-rules.md
 │   └── OPERATIONS.md
+├── scripts/
+│   └── run_hf.sh              # Hugging Face Tailscale bootstrap
 ├── src/
 │   ├── agent.py                 # LLM orchestration and grounding
 │   ├── config.py                # environment configuration
