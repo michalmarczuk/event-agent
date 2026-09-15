@@ -62,8 +62,8 @@ rm -f "$auth_file"
 export SCRAPER_PROXY_URL=socks5://127.0.0.1:1055
 
 echo "Starting event agent..."
-trap - EXIT HUP INT TERM
-exec xvfb-run -a sh -c '
-    echo "Xvfb ready"
-    exec python -u src/daily.py
-'
+
+xvfb-run -a -e /dev/stderr \
+    python -u src/daily.py
+
+echo "Event agent finished"
