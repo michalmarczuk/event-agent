@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -200,13 +200,9 @@ def test_camoufox_browser_uses_optional_proxy_and_is_reused_and_closed(
     assert local_context.new_page.call_count == len(pages)
     for page in pages:
         page.goto.assert_called_once()
-        page.wait_for_timeout.assert_called_once_with(5_000)
+        page.wait_for_timeout.assert_not_called()
         call_names = [record[0] for record in page.mock_calls]
-        assert (
-            call_names.index("goto")
-            < call_names.index("wait_for_timeout")
-            < call_names.index("locator")
-        )
+        assert call_names.index("goto") < call_names.index("locator")
         page.close.assert_called_once_with()
     local_browser.close.assert_called_once_with()
     playwright.stop.assert_called_once_with()
@@ -219,6 +215,41 @@ def test_scrape_extracts_two_prices_as_range():
     )
 
     assert scraper.scrape(_EVENT_URL) == Admission(False, 37.10, 63.60, "PLN")
+
+
+def test_readiness_returns_immediately_when_price_is_visible():
+    scraper, page, _ = scraper_for(
+        "Ticketmaster event details\nNormal ticket PLN 49",
+        section_marker=None,
+    )
+
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
+    page.wait_for_timeout.assert_not_called()
+
+
+def test_readiness_polls_until_ticket_content_is_available():
+    scraper, page, _ = scraper_for("Loading", section_marker=None)
+    body = page.locator("body")
+    rendered_text = "Ticketmaster event details\nNormal ticket PLN 49"
+
+    def render_after_two_poll_intervals(timeout):
+        if page.wait_for_timeout.call_count == 2:
+            body.text = rendered_text
+
+    page.wait_for_timeout.side_effect = render_after_two_poll_intervals
+
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
+    assert page.wait_for_timeout.call_args_list == [call(500), call(500)]
+
+
+def test_readiness_timeout_falls_through_without_raising():
+    scraper, page, _ = scraper_for(
+        "Ticketmaster page is still loading without ticket information",
+        section_marker=None,
+    )
+
+    assert scraper.scrape(_EVENT_URL) is None
+    assert page.wait_for_timeout.call_args_list == [call(500)] * 40
 
 
 @pytest.mark.parametrize(
@@ -237,7 +268,7 @@ def test_scrape_accepts_localized_consent(consent_text, caplog):
 
     assert result == Admission(False, 49, 49, "PLN")
     assert page.consent_control.click_count == 1
-    page.wait_for_timeout.assert_called_once_with(1_000)
+    assert call(1_000) in page.wait_for_timeout.call_args_list
     assert f"consent control found matched text='{consent_text}'" in caplog.text
     assert f"consent clicked matched text='{consent_text}'" in caplog.text
 

@@ -36,9 +36,9 @@ refactors must preserve.
   explicit requirement.
 - Keep Tailscale lifecycle in the Hugging Face runtime wrapper, outside the
   scraper, agent, and enrichment modules.
-- Keep the current five-second wait after navigation. It is a deliberate,
-  temporary Ticketmaster render wait and should be replaced only by a proven
-  condition-based wait.
+- Use the bounded Ticketmaster readiness wait after navigation: poll every 500
+  milliseconds for up to 20 seconds, and proceed through the existing failure
+  path if meaningful ticket content does not appear.
 
 ## Agent and Enrichment Boundary
 

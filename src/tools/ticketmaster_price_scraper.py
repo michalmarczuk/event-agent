@@ -63,6 +63,9 @@ _BLOCKED_PAGE_PATTERN = re.compile(
     r"access\s+denied|verify\s+you\s+are\s+human",
     re.IGNORECASE,
 )
+_READINESS_TIMEOUT_MS = 20_000
+_READINESS_POLL_INTERVAL_MS = 500
+_MIN_READY_BODY_TEXT_LENGTH = 20
 
 
 class TicketmasterPriceScraper:
@@ -121,8 +124,7 @@ class TicketmasterPriceScraper:
                     return None
 
                 logger.info("Ticketmaster page loaded url=%s", event_url)
-                if self._owns_browser:
-                    page.wait_for_timeout(5_000)
+                self._wait_for_ticketmaster_content(page)
                 self._accept_cookies(page)
                 body = page.locator("body")
                 body_text = body.inner_text(timeout=self._timeout_ms)
@@ -244,6 +246,32 @@ class TicketmasterPriceScraper:
                 viewport={"width": 1440, "height": 900},
             )
         return self._context
+
+    def _wait_for_ticketmaster_content(self, page: Any) -> None:
+        body = page.locator("body")
+        poll_count = _READINESS_TIMEOUT_MS // _READINESS_POLL_INTERVAL_MS
+
+        for attempt in range(poll_count + 1):
+            try:
+                body_text = body.inner_text(timeout=_READINESS_POLL_INTERVAL_MS)
+                has_ticket_signal = (
+                    bool(_prices_from_text(body_text))
+                    or _TICKET_SECTION_PATTERN.search(body_text) is not None
+                    or _BEST_AVAILABLE_PATTERN.search(body_text) is not None
+                    or self._find_ticket_section(page)[0] is not None
+                    or self._find_best_available_control(page)[0] is not None
+                )
+            except PlaywrightTimeoutError:
+                body_text = ""
+                has_ticket_signal = False
+
+            if (
+                len(body_text.strip()) >= _MIN_READY_BODY_TEXT_LENGTH
+                and has_ticket_signal
+            ):
+                return
+            if attempt < poll_count:
+                page.wait_for_timeout(_READINESS_POLL_INTERVAL_MS)
 
     @staticmethod
     def _detect_page_variant(page: Any, body_text: str) -> str:
