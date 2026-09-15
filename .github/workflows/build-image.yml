@@ -40,3 +40,10 @@ jobs:
           tags: |
             ghcr.io/michalmarczuk/event-agent:latest
             ghcr.io/michalmarczuk/event-agent:sha-${{ github.sha }}
+
+      - name: Keep latest 5 container versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: event-agent
+          package-type: container
+          min-versions-to-keep: 5
