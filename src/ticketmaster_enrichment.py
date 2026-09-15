@@ -55,7 +55,11 @@ def enrich_ticketmaster_prices(
 def _is_ticketmaster_url(url: str | None) -> bool:
     if not url:
         return False
-    hostname = urlparse(url).hostname
+    try:
+        hostname = urlparse(url).hostname
+    except ValueError:
+        logger.warning("Ticketmaster price enrichment skipped: malformed URL")
+        return False
     return hostname == "ticketmaster.pl" or bool(
         hostname and hostname.endswith(".ticketmaster.pl")
     )

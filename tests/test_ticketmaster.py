@@ -1,4 +1,8 @@
+import traceback
 from unittest.mock import patch
+
+import pytest
+import requests
 
 from src.config import SearchLocation
 from src.models import Admission, Event, EventDetails
@@ -140,3 +144,30 @@ def test_get_event_details_uses_api_key_and_parses_event():
         city="Tychy",
         url="https://example.test/event-1",
     )
+
+
+def test_search_events_sanitizes_http_failure_and_exception_chain():
+    api_key = "ticketmaster-secret-key"
+    response = requests.Response()
+    response.status_code = 503
+    response.url = (
+        "https://app.ticketmaster.com/discovery/v2/events.json"
+        f"?apikey={api_key}"
+    )
+
+    with (
+        patch("src.tools.ticketmaster.requests.get", return_value=response),
+        pytest.raises(
+            RuntimeError,
+            match=r"Ticketmaster request failed \(HTTP 503\)",
+        ) as error,
+    ):
+        TicketmasterClient(
+            api_key,
+            SearchLocation("Tychy", "u2y0test", 50),
+        ).search_events(30)
+
+    formatted_exception = "".join(traceback.format_exception(error.value))
+    assert api_key not in formatted_exception
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None

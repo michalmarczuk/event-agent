@@ -29,6 +29,8 @@ Your job is to find interesting events for the user.
 
 Use available tools when you need real event data.
 Never invent events.
+Never mention, invent, infer, estimate, or reproduce ticket prices.
+Pricing is handled by deterministic code after you select recommendations.
 Prefer upcoming events.
 The search_events tool searches for events around the user's configured home location.
 
@@ -207,6 +209,11 @@ def _execute_tool_call(
         )
         for event in result:
             known_event_admissions[event.id] = event.admission
+        # Provider pricing stays in deterministic state, not model-visible data.
+        model_visible_events = _serialize_tool_result(result)
+        for event_data in model_visible_events:
+            event_data.pop("admission", None)
+        return model_visible_events
     elif tool_call.name == "get_event_details":
         known_event_admissions.setdefault(arguments["event_id"], None)
 

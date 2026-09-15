@@ -7,27 +7,32 @@ Use Python 3.13 and a virtual environment:
 ```bash
 python3.13 -m venv .event-agent-venv
 source .event-agent-venv/bin/activate
-pip install -r requirements.txt pytest
+pip install -r requirements.txt
+pip install pytest
 ```
 
-Create `.env` locally with the required variables. Do not commit it:
-
-```text
-OPENAI_API_KEY=
-TICKETMASTER_API_KEY=
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-MODEL=
-EVENT_BASE_LOCATION_NAME=Tychy
-EVENT_BASE_GEOPOINT=<Tychy geohash>
-EVENT_SEARCH_RADIUS_KM=50
-```
-
-Run tests and the daily application:
+The offline unit suite needs neither application secrets nor a downloaded
+browser:
 
 ```bash
-python -m pytest -q
+pytest -q
+```
+
+For a live daily run, install the Camoufox browser payload and create local
+configuration from the sanitized template:
+
+```bash
+python -m camoufox fetch
+cp .env.example .env
+# Replace every placeholder in .env.
 python src/daily.py
+```
+
+Camoufox currently runs with `headless=False`. On headless Linux, provide a
+virtual display:
+
+```bash
+xvfb-run -a python src/daily.py
 ```
 
 ## Required Environment Variables
@@ -41,11 +46,25 @@ python src/daily.py
 - `MODEL`: OpenAI model name.
 - `EVENT_BASE_LOCATION_NAME`: Configured base location name, currently `Tychy`.
 - `EVENT_BASE_GEOPOINT`: Precomputed Ticketmaster geohash for the base location.
-- `EVENT_SEARCH_RADIUS_KM`: Ticketmaster search radius in kilometers, currently `50`.
+- `EVENT_SEARCH_RADIUS_KM`: Positive Ticketmaster search radius in kilometers,
+  currently `50`.
 
 Use secret values only through the local `.env` file or the deployment environment. Never place real values in documentation, source code, Dockerfiles, or image layers.
 
 ## Docker
+
+### Current Camoufox limitation
+
+The scraper is Camoufox-only, but the current Dockerfile still installs
+Playwright Chromium and does not run `python -m camoufox fetch`. A fresh image
+can build and start, but Camoufox price enrichment is not yet available until
+the browser payload is added and validated. Enrichment failure is non-fatal, so
+the daily flow can continue while preserving existing Ticketmaster Admission
+data.
+
+The commands below describe the intended container workflow; they do not
+validate live Camoufox scraping in the current image. Xvfb is already present
+for headed execution and is not the missing component.
 
 Build the image locally:
 
@@ -62,7 +81,8 @@ docker run --rm \
   event-agent:local
 ```
 
-The Docker image contains application code and dependencies, but no secrets. Credentials are injected at runtime with `--env-file` or the hosting platform's secret mechanism.
+The Docker image contains no secrets. Credentials are injected at runtime with
+`--env-file` or the hosting platform's secret mechanism.
 
 Mount `/app/data` to persistent storage. Without that mount, `seen_events.json` is lost when the container is removed and events may be delivered again on a later run.
 
@@ -83,9 +103,17 @@ sha-<commit-sha>
 
 GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication. Application secrets are not needed to build or test the image.
 
+CI uses browser doubles in the offline unit suite. A successful test run and
+image build therefore do not prove that the Camoufox binary is installed or
+that live Ticketmaster rendering works inside the image.
+
 ## Hugging Face Jobs
 
-Hugging Face Jobs is the production runtime and scheduler. A manual run uses the GHCR image, the `cpu-basic` flavor, runtime secrets, the model environment variable, and the persistent bucket mount:
+Hugging Face Jobs is the intended production runtime and scheduler. The command
+below documents the runtime topology, but live browser enrichment remains
+unverified until the Docker image provisions and validates Camoufox. A manual
+run uses the GHCR image, the `cpu-basic` flavor, runtime secrets, configuration,
+and the persistent bucket mount:
 
 ```bash
 hf jobs run \
@@ -165,7 +193,10 @@ The application stores:
 /app/data/seen_events.json
 ```
 
-Each run loads the JSON list of seen event IDs. New IDs are merged with the existing set and saved atomically only after Telegram delivery succeeds. A failed Telegram delivery leaves history unchanged so the events can be retried.
+Each run loads the JSON list of seen event IDs. IDs from final recommendations
+are merged with the existing set and saved atomically only after Telegram
+delivery succeeds. A failed Telegram delivery leaves history unchanged so the
+events can be retried.
 
 ## Troubleshooting
 
@@ -183,7 +214,7 @@ A test run may use the system Python instead of the project virtual environment 
 
 ```bash
 source .event-agent-venv/bin/activate
-python -m pytest -q
+pytest -q
 ```
 
 ### Absolute local paths in tests
@@ -230,10 +261,10 @@ Inspect the job logs, then remove the diagnostic job if it was created as a name
 ### Manually trigger production
 
 ```bash
-hf jobs scheduled run event-agent
+hf jobs scheduled trigger SCHEDULED_JOB_ID
 ```
 
-Use the scheduled-job name returned by `hf jobs scheduled list` if it differs.
+Use the scheduled-job ID returned by `hf jobs scheduled list`.
 
 ### Inspect logs
 

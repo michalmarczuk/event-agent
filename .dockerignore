@@ -9,3 +9,4 @@ __pycache__/
 .github/
 .vscode/
 tests/
+data/seen_events.json

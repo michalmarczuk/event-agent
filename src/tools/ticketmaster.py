@@ -13,6 +13,25 @@ except ImportError:  # pragma: no cover - supports script execution
 logger = logging.getLogger(__name__)
 
 
+def _get_ticketmaster_data(
+    url: str,
+    params: dict[str, str | int],
+) -> dict:
+    failure_detail = None
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as error:
+        if error.response is None:
+            failure_detail = type(error).__name__
+        else:
+            failure_detail = f"HTTP {error.response.status_code}"
+    # Raise outside the handler so the credential-bearing request exception is
+    # not retained as implicit exception context.
+    raise RuntimeError(f"Ticketmaster request failed ({failure_detail})")
+
+
 class TicketmasterClient:
     def __init__(self, api_key: str, location: SearchLocation):
         self.api_key = api_key
@@ -38,10 +57,7 @@ class TicketmasterClient:
             "endDateTime": end_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
         }
 
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-
-        data = response.json()
+        data = _get_ticketmaster_data(url, params)
         events = data.get("_embedded", {}).get("events", [])
 
         return [
@@ -87,14 +103,10 @@ class TicketmasterClient:
         logger.info("Fetching Ticketmaster event details event_id=%s", event_id)
 
         url = f"https://app.ticketmaster.com/discovery/v2/events/{event_id}.json"
-        response = requests.get(
+        event = _get_ticketmaster_data(
             url,
-            params={"apikey": self.api_key},
-            timeout=10,
+            {"apikey": self.api_key},
         )
-        response.raise_for_status()
-
-        event = response.json()
         venues = event.get("_embedded", {}).get("venues", [])
         venue = venues[0] if venues else {}
 

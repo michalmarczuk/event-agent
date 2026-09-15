@@ -4,10 +4,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import requests
 
 import src.agent as agent
 from src.config import SearchLocation, Settings
 from src.models import Admission, Event, EventDetails, Recommendation
+from src.tools.ticketmaster import TicketmasterClient
 
 
 TEST_SETTINGS = Settings(
@@ -133,8 +135,14 @@ def test_parse_recommendations_rejects_more_than_seven():
         )
 
 
-def test_run_agent_dispatches_search_and_preserves_source_admission():
-    admission = Admission(False, 40, 60, "PLN")
+def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
+    admission = Admission(
+        False,
+        40.25,
+        60.75,
+        "TEST-CURRENCY",
+        "provider-price-note",
+    )
     event = Event(
         "event-1", "Concert", None, "Tychy", None, None, "test", admission
     )
@@ -164,8 +172,24 @@ def test_run_agent_dispatches_search_and_preserves_source_admission():
     continuation_call = create.call_args_list[1]
     assert continuation_call.kwargs["model"] == TEST_SETTINGS.model
     assert continuation_call.kwargs["previous_response_id"] == first_response.id
-    tool_output = json.loads(continuation_call.kwargs["input"][0]["output"])
-    assert tool_output == [asdict(event)]
+    model_visible_output = continuation_call.kwargs["input"][0]["output"]
+    tool_output = json.loads(model_visible_output)
+    expected_event = asdict(event)
+    del expected_event["admission"]
+    assert tool_output == [expected_event]
+    for hidden_value in (
+        "admission",
+        "is_free",
+        "price_min",
+        "price_max",
+        "currency",
+        "note",
+        "40.25",
+        "60.75",
+        "TEST-CURRENCY",
+        "provider-price-note",
+    ):
+        assert hidden_value not in model_visible_output
 
     recommendation = result.recommendations[0]
     assert isinstance(recommendation, Recommendation)
@@ -194,6 +218,48 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     ]
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
+
+
+def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
+    caplog,
+):
+    api_key = "ticketmaster-secret-key"
+    response = requests.Response()
+    response.status_code = 503
+    response.url = (
+        "https://app.ticketmaster.com/discovery/v2/events.json"
+        f"?apikey={api_key}"
+    )
+    tool_call = _tool_response(
+        "response-1",
+        "search_events",
+        "call-1",
+        days_ahead=30,
+    ).output[0]
+    tool_handlers = {
+        "search_events": TicketmasterClient(
+            api_key,
+            SearchLocation("Tychy", "u2y0test", 50),
+        ).search_events,
+    }
+
+    caplog.set_level("INFO")
+    with patch("src.tools.ticketmaster.requests.get", return_value=response):
+        result = agent._execute_tool_call(
+            tool_handlers,
+            tool_call,
+            seen_event_ids=set(),
+            known_event_admissions={},
+        )
+
+    model_output = agent._build_function_call_output(tool_call, result)
+    assert json.loads(model_output["output"]) == {
+        "error": True,
+        "message": "Ticketmaster request failed (HTTP 503)",
+    }
+    assert api_key not in model_output["output"]
+    assert "Tool execution failed tool=search_events" in caplog.text
+    assert api_key not in caplog.text
 
 
 def test_run_agent_rejects_unknown_recommendation_id():
@@ -281,8 +347,12 @@ def test_run_agent_filters_seen_and_same_run_events():
 
     first_output = json.loads(create.call_args_list[1].kwargs["input"][0]["output"])
     second_output = json.loads(create.call_args_list[2].kwargs["input"][0]["output"])
-    assert first_output == [asdict(new_event)]
-    assert second_output == [asdict(latest_event)]
+    expected_new_event = asdict(new_event)
+    expected_latest_event = asdict(latest_event)
+    del expected_new_event["admission"]
+    del expected_latest_event["admission"]
+    assert first_output == [expected_new_event]
+    assert second_output == [expected_latest_event]
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
 

@@ -1,0 +1,245 @@
+# Architecture
+
+## Goals
+
+Event Agent is a scheduled batch application that finds nearby Ticketmaster
+events, asks an OpenAI agent to choose a small set of grounded recommendations,
+enriches only those choices with deterministic ticket pricing, sends one
+Telegram report, and records the delivered recommendation IDs.
+
+The design makes the boundary between probabilistic selection and deterministic
+system behavior explicit. It is intentionally small: one discovery provider,
+one browser backend, synchronous execution, and at most seven recommendations
+per run.
+
+## Non-goals
+
+- A long-running web service or public API
+- Generic provider or browser frameworks without a current requirement
+- LLM-authored prices, delivery markup, or persistence decisions
+- Scraping every discovered event
+- Proxy, custom anti-bot, or CAPTCHA handling
+- Live external-service calls in the default test suite
+
+## End-to-end Flow
+
+```text
+Hugging Face Scheduled Job
+    -> daily.main()
+    -> load seen recommendation IDs
+    -> OpenAI Responses API agent loop
+         <-> Ticketmaster Discovery API tools
+    -> grounded candidates
+    -> OpenAI selects and validates recommendations
+    -> Camoufox enriches final Ticketmaster recommendations
+    -> deterministic Telegram HTML formatting
+    -> Telegram delivery
+    -> atomically persist recommended IDs after successful delivery
+```
+
+## Module Responsibilities
+
+| Module | Responsibility |
+| --- | --- |
+| `src/daily.py` | Compose one scheduled run and enforce delivery-before-persistence ordering. |
+| `src/agent.py` | Orchestrate OpenAI Responses calls, execute tools, filter candidates, ground IDs, and validate structured recommendations. |
+| `src/models.py` | Define shared event, admission, and recommendation dataclasses. |
+| `src/config.py` | Read and validate environment configuration. |
+| `src/history.py` | Load, validate, filter, and atomically persist seen event IDs. |
+| `src/tools/registry.py` | Define the model-visible tools and dispatch them to configured handlers. |
+| `src/tools/ticketmaster.py` | Call the Ticketmaster Discovery API and map responses into domain models. |
+| `src/tools/ticketmaster_price_scraper.py` | Own Camoufox and extract visible PLN prices from Ticketmaster pages. |
+| `src/ticketmaster_enrichment.py` | Apply deterministic post-selection price enrichment while isolating scraper failures. |
+| `src/telegram_formatter.py` | Render escaped, deterministic Telegram HTML. |
+| `src/telegram_notifier.py` | Deliver the message through the Telegram Bot API. |
+
+`src/agent.py` does not know how browser scraping works, and the scraper does
+not know about agent conversations or Telegram. `src/daily.py` is the small
+composition root that sequences these boundaries.
+
+## Probabilistic vs Deterministic Boundary
+
+| Probabilistic LLM responsibility | Deterministic application responsibility |
+| --- | --- |
+| Choose and rank interesting grounded events. | Discover provider events through registered tools. |
+| Produce model-authored display fields—name, category, date, time, city, venue, reason, and URL—in a strict schema. | Filter seen and repeated IDs, validate grounding, and cap the result count. |
+| Decide whether another tool call is useful. | Own all `Admission` data and browser price extraction. |
+|  | Escape and format Telegram HTML. |
+|  | Deliver the report and persist selected IDs only after success. |
+
+The recommendation response schema deliberately excludes `admission`. Even if
+model output attempted to include it, strict schema validation rejects the
+field, and application parsing injects the provider-authoritative value.
+Successful search results have two representations: the internal Event's
+Admission is stored in `known_event_admissions`, while the fresh dictionary sent
+to OpenAI has its top-level `admission` field removed. Structured provider
+pricing therefore never reaches the model.
+
+Together, tool-output redaction and deterministic parser injection prevent the
+model from becoming Admission authority. Permanent agent instructions also
+prohibit mentioning, inventing, inferring, estimating, or reproducing prices.
+The remaining display fields are model-authored free text and are not
+cross-checked against the provider response.
+
+## OpenAI Responses API Tool Loop
+
+The agent creates an initial Responses API request with permanent instructions,
+the Ticketmaster tool definitions, and a strict JSON response schema. While the
+response contains function calls, it:
+
+1. Parses the tool arguments.
+2. Dispatches through `src/tools/registry.py`.
+3. Applies grounding and deduplication state only after successful execution.
+4. Serializes a sanitized model-visible view; search Event dictionaries omit
+   `admission` and its nested price data.
+5. Sends function-call outputs in a continuation request using
+   `previous_response_id` and the same instructions, tools, and response format.
+
+Tool errors are returned to the model so the conversation can recover. The
+generic loop forwards the handler's exception message, so sanitization belongs
+at each provider boundary. Ticketmaster HTTP failures are sanitized before they
+reach that model-visible payload. A failed tool call does not ground an event
+ID. Malformed tool arguments retain their existing fatal behavior.
+
+## Grounding and `known_event_admissions`
+
+`known_event_admissions: dict[str, Admission | None]` is the agent run's single
+source of truth for both grounding and provider admission data:
+
+- Search results are filtered against previously seen IDs and existing mapping
+  keys, preserving cross-run and same-run deduplication.
+- Each remaining unseen search result adds its event ID and provider
+  `Admission` value.
+- The model receives a price-free projection of that Event; the mapping remains
+  private to deterministic orchestration.
+- A successful `get_event_details` call adds the requested ID with
+  `setdefault(event_id, None)`, so it never erases an Admission already obtained
+  from search.
+- Final recommendation IDs must be keys in the mapping. Unknown IDs are rejected.
+- Recommendation parsing injects the mapped Admission, so the LLM can never
+  become the pricing authority.
+
+`AgentRunResult.recommended_event_ids` contains only the IDs in the final
+recommendations. Discovered but unselected IDs are not persisted.
+
+## Admission Authority and Price Enrichment
+
+`Admission` is provider-owned data. Ticketmaster API price ranges may establish
+an initial value during discovery. After the LLM selects recommendations,
+`src/ticketmaster_enrichment.py` processes only final recommendations whose URL
+belongs to `ticketmaster.pl` or one of its subdomains.
+
+- A successful scrape replaces the existing Admission with the visible provider
+  price range.
+- A scrape that returns `None` means pricing is unavailable; it does not mean the
+  event is free.
+- A malformed or non-Ticketmaster URL is skipped.
+- Scraper setup and individual page failures preserve existing Admission data
+  and do not fail the daily run.
+- Enrichment mutates the recommendation objects in place and returns the same
+  list.
+
+## Camoufox Lifecycle
+
+Camoufox is controlled through the Playwright API. One
+`TicketmasterPriceScraper` context manager owns one Camoufox browser and one
+browser context for the final recommendation batch. Each recommendation uses a
+new page, and that page is closed in a `finally` block after the scrape. Closing
+the scraper releases the browser and Playwright resources it owns.
+
+The current browser settings are headed mode, `pl-PL` locale, a macOS
+fingerprint, the `Europe/Warsaw` timezone, and a 1440×900 viewport. There is no
+proxy or alternate-browser abstraction.
+
+For each production-owned Camoufox page, the scraper:
+
+1. Navigates to the event page.
+2. Waits five seconds for Ticketmaster rendering.
+3. Accepts a visible Polish or English consent button when present.
+4. Extracts visible PLN prices directly when possible.
+5. Otherwise clicks the localized best-available control, waits one second, and
+   extracts again.
+6. Converts supported comma/dot PLN values to a minimum/maximum Admission range.
+
+Blocked, unavailable, timed-out, or otherwise failed pages return `None`. The
+five-second render wait is an explicit temporary choice and may later be
+replaced by a proven condition-based wait.
+
+## Failure Boundaries
+
+| Stage | Behavior | History effect |
+| --- | --- | --- |
+| Configuration, OpenAI, or final validation | The run fails before delivery. | No IDs are saved. |
+| Ticketmaster discovery request | A credential-safe tool error is returned to the LLM. | A failed result grounds no IDs. |
+| Price enrichment | Existing recommendation data is preserved and the batch continues. | No immediate history change. |
+| Telegram delivery | A credential-safe exception propagates. | No IDs are saved. |
+| History write | The run fails after delivery. | A later run may recommend the same event again. |
+
+The final ordering deliberately prefers retryability over recording a message
+that Telegram did not accept. A successful delivery followed by a history-write
+failure can cause a later duplicate; this is the accepted small-batch tradeoff.
+
+## Telegram Delivery and Persistence Ordering
+
+The formatter, not the LLM, owns Telegram markup. It escapes recommendation
+names, dates, locations, reasons, URLs, and admission notes, then renders them
+with Admission data in a stable HTML structure.
+
+The daily sequence is:
+
+1. Enrich final recommendations.
+2. Format and print the Telegram report.
+3. Deliver the report.
+4. Union prior history with final recommendation IDs.
+5. Persist the sorted set atomically through a temporary file, `fsync`, and
+   `os.replace`.
+
+Only recommendation IDs are stored. Runtime history belongs at `/app/data` in
+the deployed job and is excluded from Git and the Docker build context.
+
+## Testing Boundaries
+
+The default pytest suite is offline and requires no application secrets. It
+mocks OpenAI responses, Ticketmaster HTTP, Telegram HTTP, and Camoufox/Playwright
+objects. Meaningful behavioral coverage includes:
+
+- initial and continuation Responses API request contracts;
+- grounding, same-run deduplication, seen-ID filtering, and unknown-ID rejection;
+- model-visible search output excludes Admission while the internally retained
+  value reaches the final Recommendation;
+- Ticketmaster query construction and response mapping;
+- localized consent, direct and post-click price extraction;
+- one scraper lifecycle per final batch and per-page cleanup;
+- non-fatal enrichment failures and Admission preservation;
+- deterministic Telegram formatting and credential-safe failures;
+- delivery-before-persistence ordering and atomic history writes.
+
+Live Ticketmaster/Camoufox checks are manual or opt-in because they depend on
+network access, a third-party UI, and anti-bot behavior. They are not part of
+deterministic CI.
+
+## Intentional Tradeoffs
+
+- **Single provider and browser backend:** Ticketmaster and Camoufox keep the
+  code direct. Interfaces for hypothetical providers/backends are intentionally
+  absent.
+- **Synchronous batch execution:** simple sequencing is appropriate for at most
+  seven recommendations.
+- **In-place enrichment:** the mutation is explicit and keeps pipeline wiring
+  small.
+- **Fixed render wait:** five seconds is predictable and proven locally, though
+  less efficient than a future reliable page-ready condition.
+- **UI-dependent pricing:** browser enrichment can degrade gracefully while API
+  discovery and Telegram delivery continue.
+
+## Deployment Status
+
+GitHub Actions runs tests and publishes the image to GHCR. Hugging Face Jobs is
+the intended scheduler, and a Hugging Face Storage Bucket provides `/app/data`.
+See [Operations](OPERATIONS.md) for the existing runbook.
+
+The current Dockerfile is not yet aligned with the Camoufox-only scraper: it
+installs Playwright Chromium but does not fetch the Camoufox browser payload.
+Local Camoufox behavior is verified; fresh Docker/Hugging Face browser
+enrichment requires a separate image update and validation. This limitation is
+documented rather than hidden.

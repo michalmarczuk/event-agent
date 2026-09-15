@@ -90,6 +90,23 @@ def test_enrichment_continues_after_one_scrape_fails():
     assert second.admission == expected
 
 
+def test_enrichment_skips_malformed_url_and_continues():
+    FakeScraper.instances = []
+    existing = Admission(False, 20, 20, "PLN")
+    malformed = recommendation("malformed", "https://[invalid", existing)
+    valid = recommendation("valid", "https://www.ticketmaster.pl/event/2")
+    expected = Admission(False, 37.10, 63.60, "PLN")
+    FakeScraper.prices = {valid.url: expected}
+    recommendations = [malformed, valid]
+
+    result = enrich_ticketmaster_prices(recommendations, FakeScraper)
+
+    assert result is recommendations
+    assert FakeScraper.instances[0].scraped_urls == [valid.url]
+    assert malformed.admission == existing
+    assert valid.admission == expected
+
+
 def test_enrichment_output_is_rendered_in_telegram_message():
     ticketmaster_recommendation = recommendation(
         "event", "https://www.ticketmaster.pl/event/1"

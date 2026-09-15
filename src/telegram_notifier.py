@@ -10,7 +10,6 @@ except ImportError:  # pragma: no cover - supports script execution
 logger = logging.getLogger(__name__)
 
 
-
 def send_telegram_message(message: str) -> None:
     settings = load_settings()
 
@@ -27,6 +26,10 @@ def send_telegram_message(message: str) -> None:
         response.raise_for_status()
     except Exception:
         logger.error("Telegram delivery failed")
-        raise
+    else:
+        logger.info("Telegram delivery succeeded")
+        return
 
-    logger.info("Telegram delivery succeeded")
+    # Raise outside the exception handler so a token-bearing request error is
+    # not retained as this safe public exception's context.
+    raise RuntimeError("Telegram delivery failed")

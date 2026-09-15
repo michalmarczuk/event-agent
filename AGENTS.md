@@ -1,50 +1,102 @@
 # Engineering Instructions
 
-## Project
+## Purpose
 
-This repository contains a Python 3.13 event discovery agent. It uses the OpenAI Responses API, Ticketmaster tools, and Telegram delivery. The application runs on a schedule through Hugging Face Jobs. GitHub Actions builds the Docker image and publishes it to GHCR.
+This repository is a small Python 3.13 portfolio project for scheduled event
+discovery and delivery. The OpenAI agent selects grounded Ticketmaster events;
+deterministic code owns price enrichment, Telegram formatting, delivery, and
+history persistence.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/OPERATIONS.md](docs/OPERATIONS.md) for detailed documentation.
+Read [Architecture](docs/architecture.md) for system behavior and
+[Engineering Rules](docs/engineering-rules.md) for the canonical invariants.
+[Operations](docs/OPERATIONS.md) contains the deployment runbook.
 
-## Architecture
+## Repository Map
 
-- `src/agent.py`: LLM orchestration and runtime dependency wiring; it does not implement Ticketmaster or define tools.
-- `src/tools/registry.py`: OpenAI tool definitions and dispatch.
-- `src/tools/ticketmaster.py`: Ticketmaster integration.
-- `src/config.py`: Environment configuration and validation.
-- `src/history.py`: Seen-event persistence.
-- `src/telegram_notifier.py`: Telegram delivery.
-- `src/daily.py`: Application entry point.
+- `src/agent.py`: OpenAI Responses API orchestration, tool loop, grounding, and
+  recommendation validation.
+- `src/tools/registry.py`: OpenAI tool schemas and dispatch.
+- `src/tools/ticketmaster.py`: Ticketmaster Discovery API client.
+- `src/tools/ticketmaster_price_scraper.py`: Camoufox browser lifecycle and
+  visible Ticketmaster price extraction.
+- `src/ticketmaster_enrichment.py`: deterministic post-selection price
+  enrichment and its failure isolation.
+- `src/telegram_formatter.py`: deterministic Telegram HTML.
+- `src/telegram_notifier.py`: Telegram transport.
+- `src/history.py`: validated, atomic seen-ID persistence.
+- `src/config.py`: the only module that reads environment variables.
+- `src/daily.py`: composition root and delivery-before-persistence sequencing.
+- `src/models.py`: shared domain dataclasses.
 
-Do not move responsibilities across these boundaries without a clear reason.
+Do not move responsibilities across these boundaries without a concrete need.
 
-## Coding Rules
+## Validation Commands
 
-- Target Python 3.13.
-- Add type hints to public functions.
-- Add concise docstrings to public APIs.
-- Comments should explain why, not obvious code.
-- Prefer small functions and avoid unnecessary abstractions or frameworks.
-- Read environment variables only through `src/config.py`.
-- Never hardcode secrets.
+Run these before handing off a change:
 
-## Testing Rules
+```bash
+pytest -q
+pip check
+git diff --check
+```
 
-- Use `pytest`.
-- Unit tests must not call OpenAI, Ticketmaster, or Telegram.
-- Tests must run without application secrets.
-- Preserve regression coverage for seen-event filtering.
-- Run the full test suite after changes.
+Unit tests must run without application secrets or real OpenAI, Ticketmaster,
+Telegram, or browser calls.
+
+## Non-negotiable Invariants
+
+- The LLM must never invent, infer, or reproduce ticket prices.
+- Price enrichment is deterministic and occurs only after recommendations are
+  selected.
+- Browser scraping runs only for final recommendations.
+- Missing price data means unknown, never free admission.
+- Successful scraped provider data replaces prior `Admission`; failed or
+  unavailable scraping preserves it.
+- Retain provider Admission internally, but omit Admission and price fields from
+  successful model-visible search results.
+- Event IDs must be grounded by successful tool calls.
+- Persist only recommended event IDs, and only after successful Telegram
+  delivery.
+- A price-scraping failure must not fail the daily run.
+- Keep agent orchestration separate from deterministic enrichment.
+
+## Browser Rules
+
+- Camoufox is the single browser backend. Do not add a browser-provider layer or
+  multi-browser abstraction without an actual requirement.
+- Reuse one Camoufox browser and context for a recommendation batch.
+- Create one page per recommendation and close it after that scrape.
+- Preserve the explicit five-second post-navigation render wait until a proven
+  condition-based replacement is implemented.
+- Do not add proxy, custom anti-bot/stealth, or CAPTCHA-handling logic without
+  an explicit task.
+
+## Security and Runtime State
+
+- Read environment variables only through `src/config.py`; never hardcode or
+  commit secrets.
+- Never expose credentials in logs, exceptions, or model-visible tool output.
+- Keep `.env` and runtime `data/seen_events.json` out of Git and Docker build
+  context.
+- Keep Docker images secret-free.
 
 ## Change Discipline
 
-- Preserve public behavior unless explicitly requested otherwise.
-- Prefer small, focused refactors.
-- Do not modify unrelated files.
-- Avoid new dependencies unless justified.
+- Preserve public behavior unless a task explicitly changes it.
+- Prefer simple, explicit code over speculative abstractions.
+- Add helper layers only when they materially improve readability or are reused.
+- Do not introduce frameworks, provider interfaces, plugins, or dependencies for
+  hypothetical future needs.
+- Prefer observable-behavior tests over implementation-detail tests.
+- Preserve coverage for grounding, deduplication, model-visible price isolation,
+  admission authority, scraper reuse/page cleanup, failure isolation, delivery
+  ordering, persistence, and credential sanitization.
+- Keep changes focused; do not modify unrelated modules.
+- Add type hints and concise docstrings to public APIs. Comments should explain
+  why, not restate the code.
 
-## Runtime Rules
+## Deployment Note
 
-- Docker images must remain secret-free.
-- Persistent history is stored in `/app/data` through the Hugging Face Storage Bucket.
-- GitHub Actions is for CI and image builds, not production scheduling.
+Do not claim the current Docker image is Camoufox-ready. The Dockerfile still
+provisions Playwright Chromium and does not fetch the Camoufox browser payload;
+aligning and validating that image is a separate deployment task.
