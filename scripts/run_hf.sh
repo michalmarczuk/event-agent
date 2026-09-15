@@ -63,4 +63,7 @@ export SCRAPER_PROXY_URL=socks5://127.0.0.1:1055
 
 echo "Starting event agent..."
 trap - EXIT HUP INT TERM
-exec xvfb-run -a python src/daily.py
+exec xvfb-run -a sh -c '
+    echo "Xvfb ready"
+    exec python -u src/daily.py
+'
