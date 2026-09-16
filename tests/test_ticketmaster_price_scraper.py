@@ -242,10 +242,68 @@ def test_readiness_polls_until_ticket_content_is_available():
     assert page.wait_for_timeout.call_args_list == [call(500), call(500)]
 
 
-def test_readiness_timeout_falls_through_without_raising(caplog):
+def test_readiness_ignores_skip_link_until_best_available_is_visible():
+    skip_link = "Pomiń, aby wyszukać bilety"
+    control_text = "Wybierz najlepsze dostępne miejsca"
+    scraper, page, best_control = scraper_for(
+        f"{skip_link}\nŁadowanie strony wydarzenia",
+        after_click="Bilety\nBilet normalny 63,60 zł",
+        section_marker=skip_link,
+        section_marker_role="link",
+        best_control_text=control_text,
+    )
+    body = page.locator("body")
+    best_control.item_count = 0
+
+    def reveal_ticket_controls(timeout):
+        if page.wait_for_timeout.call_count == 2:
+            body.text = (
+                f"{skip_link}\nWybierz sposób wyszukiwania dostępnych biletów\n"
+                f"{control_text}"
+            )
+            best_control.item_count = 1
+
+    page.wait_for_timeout.side_effect = reveal_ticket_controls
+
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 63.60, 63.60, "PLN")
+    assert page.wait_for_timeout.call_args_list == [
+        call(500),
+        call(500),
+        call(1_000),
+    ]
+    assert best_control.click_count == 1
+
+
+@pytest.mark.parametrize(
+    ("body_text", "section_marker", "section_marker_role"),
+    [
+        (
+            "Ticketmaster page is still loading without ticket information",
+            None,
+            "heading",
+        ),
+        (
+            "Pomiń, aby wyszukać bilety\nŁadowanie strony wydarzenia",
+            "Pomiń, aby wyszukać bilety",
+            "link",
+        ),
+        (
+            "Skip to Search For Tickets\nEvent page still loading",
+            "Skip to Search For Tickets",
+            "link",
+        ),
+    ],
+)
+def test_readiness_timeout_falls_through_without_raising(
+    body_text,
+    section_marker,
+    section_marker_role,
+    caplog,
+):
     scraper, page, _ = scraper_for(
-        "Ticketmaster page is still loading without ticket information",
-        section_marker=None,
+        body_text,
+        section_marker=section_marker,
+        section_marker_role=section_marker_role,
     )
 
     with caplog.at_level(logging.WARNING):
@@ -439,7 +497,7 @@ def test_scrape_clicks_localized_best_available_control(
 
 
 def test_scrape_logs_when_best_available_control_is_absent(caplog):
-    scraper, _, _ = scraper_for(
+    scraper, page, _ = scraper_for(
         "Search For Tickets\nNo prices yet",
     )
 
@@ -447,6 +505,7 @@ def test_scrape_logs_when_best_available_control_is_absent(caplog):
         assert scraper.scrape(_EVENT_URL) is None
 
     assert "no price found and no best-available control" in caplog.text
+    assert page.wait_for_timeout.call_args_list == [call(500)] * 40
     failure_record = next(
         record
         for record in caplog.records

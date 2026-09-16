@@ -64,6 +64,10 @@ _BLOCKED_PAGE_PATTERN = re.compile(
     r"access\s+denied|verify\s+you\s+are\s+human",
     re.IGNORECASE,
 )
+_ACCESSIBILITY_SKIP_TICKET_PATTERN = re.compile(
+    r"^\s*(?:pomiń|skip)\b.*?\b(?:bilet\w*|tickets?)\b",
+    re.IGNORECASE,
+)
 _READINESS_TIMEOUT_MS = 20_000
 _READINESS_POLL_INTERVAL_MS = 500
 _MIN_READY_BODY_TEXT_LENGTH = 20
@@ -208,7 +212,12 @@ class TicketmasterPriceScraper:
                     if control is None:
                         failure_reason = (
                             "no_price_or_best_available"
-                            if page_ready
+                            if page_ready or (
+                                marker_text is not None
+                                and not _ACCESSIBILITY_SKIP_TICKET_PATTERN.search(
+                                    marker_text
+                                )
+                            )
                             else "page_not_ready"
                         )
                         logger.warning(
@@ -333,9 +342,6 @@ class TicketmasterPriceScraper:
                 body_text = body.inner_text(timeout=_READINESS_POLL_INTERVAL_MS)
                 has_ticket_signal = (
                     bool(_prices_from_text(body_text))
-                    or _TICKET_SECTION_PATTERN.search(body_text) is not None
-                    or _BEST_AVAILABLE_PATTERN.search(body_text) is not None
-                    or self._find_ticket_section(page)[0] is not None
                     or self._find_best_available_control(page)[0] is not None
                 )
             except PlaywrightTimeoutError:
