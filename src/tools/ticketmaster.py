@@ -13,6 +13,19 @@ except ImportError:  # pragma: no cover - supports script execution
 logger = logging.getLogger(__name__)
 
 
+def _log_canceled_event(event_id: str) -> None:
+    logger.info(
+        "Dropped canceled Ticketmaster event event_id=%s",
+        event_id,
+        extra={
+            "event.action": "ticketmaster_event_filter",
+            "event.outcome": "dropped",
+            "event.reason": "canceled",
+            "ticketmaster.event_id": event_id,
+        },
+    )
+
+
 def _get_ticketmaster_data(
     url: str,
     params: dict[str, str | int],
@@ -60,10 +73,13 @@ class TicketmasterClient:
         data = _get_ticketmaster_data(url, params)
         events = data.get("_embedded", {}).get("events", [])
 
-        return [
-            self._event_from_response(event)
-            for event in events
-        ]
+        discovered_events = []
+        for event in events:
+            if event.get("dates", {}).get("status", {}).get("code") == "canceled":
+                _log_canceled_event(event["id"])
+                continue
+            discovered_events.append(self._event_from_response(event))
+        return discovered_events
 
     def _event_from_response(self, event: dict) -> Event:
         venues = event.get("_embedded", {}).get("venues", [])
@@ -107,6 +123,10 @@ class TicketmasterClient:
             url,
             {"apikey": self.api_key},
         )
+        if event.get("dates", {}).get("status", {}).get("code") == "canceled":
+            _log_canceled_event(event_id)
+            raise ValueError("Ticketmaster event is canceled")
+
         venues = event.get("_embedded", {}).get("venues", [])
         venue = venues[0] if venues else {}
 

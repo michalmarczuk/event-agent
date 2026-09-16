@@ -262,6 +262,96 @@ def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
     assert api_key not in caplog.text
 
 
+def test_canceled_search_event_is_not_model_visible_or_grounded():
+    tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    ticketmaster_client = TicketmasterClient(
+        "ticketmaster-test-key",
+        SearchLocation("Tychy", "u2y0test", 50),
+    )
+    data = {
+        "_embedded": {
+            "events": [
+                {
+                    "id": "canceled-event",
+                    "name": "Canceled concert",
+                    "dates": {"status": {"code": "canceled"}},
+                },
+                {
+                    "id": "active-event",
+                    "name": "Active concert",
+                    "dates": {"status": {"code": "onsale"}},
+                },
+            ]
+        }
+    }
+    known_event_admissions = {}
+
+    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
+        result = agent._execute_tool_call(
+            {"search_events": ticketmaster_client.search_events},
+            tool_call,
+            seen_event_ids=set(),
+            known_event_admissions=known_event_admissions,
+        )
+
+    model_output = agent._build_function_call_output(tool_call, result)
+    assert [event["id"] for event in json.loads(model_output["output"])] == [
+        "active-event"
+    ]
+    assert set(known_event_admissions) == {"active-event"}
+    with pytest.raises(ValueError, match="unknown event ID"):
+        agent._parse_recommendations(
+            json.dumps(
+                {
+                    "recommendations": [
+                        _BASE_RECOMMENDATION | {"event_id": "canceled-event"}
+                    ]
+                }
+            ),
+            known_event_admissions,
+        )
+
+
+def test_canceled_event_details_do_not_ground_event_id():
+    tool_call = _tool_response(
+        "response-1", "get_event_details", "call-1", event_id="canceled-event"
+    ).output[0]
+    ticketmaster_client = TicketmasterClient(
+        "ticketmaster-test-key",
+        SearchLocation("Tychy", "u2y0test", 50),
+    )
+    data = {
+        "id": "canceled-event",
+        "name": "Canceled concert",
+        "dates": {"status": {"code": "canceled"}},
+    }
+    known_event_admissions = {}
+
+    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
+        result = agent._execute_tool_call(
+            {"get_event_details": ticketmaster_client.get_event_details},
+            tool_call,
+            seen_event_ids=set(),
+            known_event_admissions=known_event_admissions,
+        )
+
+    assert result["error"] is True
+    assert known_event_admissions == {}
+    with pytest.raises(ValueError, match="unknown event ID"):
+        agent._parse_recommendations(
+            json.dumps(
+                {
+                    "recommendations": [
+                        _BASE_RECOMMENDATION | {"event_id": "canceled-event"}
+                    ]
+                }
+            ),
+            known_event_admissions,
+        )
+
+
 def test_run_agent_rejects_unknown_recommendation_id():
     with pytest.raises(ValueError, match="unknown event ID"):
         _run_with_tool_results([_final_response("unknown")], [])
