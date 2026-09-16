@@ -18,8 +18,9 @@ RUN python -m playwright install-deps firefox \
     && command -v tailscale \
     && command -v tailscaled \
     && rm -rf /var/lib/apt/lists/*
-RUN python -m camoufox fetch \
-    && python -m camoufox version
+RUN python -m camoufox set official/stable/152.0.4-beta.30 \
+    && python -m camoufox fetch \
+    && python -c 'from camoufox.pkgman import installed_verstr; version = installed_verstr(); print(f"Verified Camoufox browser: {version}")'
 
 COPY src/ src/
 COPY data/ data/
