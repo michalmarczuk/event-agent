@@ -1,4 +1,5 @@
 import logging
+import time
 
 from agent import run_agent
 from config import load_settings
@@ -20,9 +21,11 @@ DAYS_AHEAD = 30
 
 def main() -> None:
     """Run the daily event search and deliver its result."""
+    started_at = time.monotonic()
     configure_logging()
     try:
         seen_event_ids = load_seen_event_ids()
+        seen_loaded = len(seen_event_ids)
         logger.info("Loaded %d seen event IDs", len(seen_event_ids))
 
         result = run_agent(
@@ -50,6 +53,21 @@ def main() -> None:
             "Saved %d seen event IDs",
             len(updated_seen_event_ids),
         )
+        try:
+            logger.info(
+                "Daily event-agent run completed",
+                extra={
+                    "event.action": "daily_run",
+                    "event.outcome": "success",
+                    "run.duration_ms": int((time.monotonic() - started_at) * 1_000),
+                    "events.seen_loaded": seen_loaded,
+                    "events.recommended": len(result.recommended_event_ids),
+                    "events.seen_saved": len(updated_seen_event_ids),
+                },
+            )
+        except Exception:
+            # A telemetry failure must not change delivery or persistence.
+            pass
     finally:
         shutdown_logging()
 
