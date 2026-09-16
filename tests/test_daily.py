@@ -76,6 +76,10 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     fake_formatter = SimpleNamespace(
         format_telegram_message=format_telegram_message,
     )
+    fake_logging_config = SimpleNamespace(
+        configure_logging=lambda: operations.append(("logging",)),
+        shutdown_logging=lambda: operations.append(("logging_shutdown",)),
+    )
 
     monkeypatch.setitem(sys.modules, "agent", fake_agent)
     monkeypatch.setitem(sys.modules, "history", fake_history)
@@ -83,11 +87,13 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
     monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
+    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
     project_root = Path(__file__).resolve().parents[1]
     runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
     assert operations == [
+        ("logging",),
         (
             "agent",
             "Znajdź najciekawsze wydarzenia dla mnie na najbliższe 30 dni.",
@@ -97,11 +103,13 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
         ("formatter", "enriched", "Tychy", 50, 30),
         ("telegram", "formatted report"),
         ("persistence", {"seen", "new"}),
+        ("logging_shutdown",),
     ]
 
 
 def test_daily_does_not_save_history_when_telegram_fails(monkeypatch):
     saved_ids = []
+    logging_shutdowns = []
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
             recommendations=[],
@@ -125,12 +133,21 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch):
     fake_formatter = SimpleNamespace(
         format_telegram_message=lambda recommendations, base_location_name, radius_km, days_ahead: "formatted report"
     )
+    fake_enrichment = SimpleNamespace(
+        enrich_ticketmaster_prices=lambda recommendations: recommendations,
+    )
+    fake_logging_config = SimpleNamespace(
+        configure_logging=lambda: None,
+        shutdown_logging=lambda: logging_shutdowns.append(True),
+    )
 
     monkeypatch.setitem(sys.modules, "agent", fake_agent)
     monkeypatch.setitem(sys.modules, "history", fake_history)
     monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
+    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
+    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
     project_root = Path(__file__).resolve().parents[1]
     try:
@@ -141,6 +158,7 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch):
         raise AssertionError("Telegram failure should propagate")
 
     assert saved_ids == []
+    assert logging_shutdowns == [True]
 
 
 def test_daily_persists_only_recommended_event_ids(monkeypatch):
@@ -168,12 +186,21 @@ def test_daily_persists_only_recommended_event_ids(monkeypatch):
     fake_formatter = SimpleNamespace(
         format_telegram_message=lambda recommendations, base_location_name, radius_km, days_ahead: "formatted report"
     )
+    fake_enrichment = SimpleNamespace(
+        enrich_ticketmaster_prices=lambda agent_recommendations: agent_recommendations,
+    )
+    fake_logging_config = SimpleNamespace(
+        configure_logging=lambda: None,
+        shutdown_logging=lambda: None,
+    )
 
     monkeypatch.setitem(sys.modules, "agent", fake_agent)
     monkeypatch.setitem(sys.modules, "history", fake_history)
     monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
+    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
+    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
     project_root = Path(__file__).resolve().parents[1]
     runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")

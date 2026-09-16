@@ -242,14 +242,22 @@ def test_readiness_polls_until_ticket_content_is_available():
     assert page.wait_for_timeout.call_args_list == [call(500), call(500)]
 
 
-def test_readiness_timeout_falls_through_without_raising():
+def test_readiness_timeout_falls_through_without_raising(caplog):
     scraper, page, _ = scraper_for(
         "Ticketmaster page is still loading without ticket information",
         section_marker=None,
     )
 
-    assert scraper.scrape(_EVENT_URL) is None
+    with caplog.at_level(logging.WARNING):
+        assert scraper.scrape(_EVENT_URL) is None
+
     assert page.wait_for_timeout.call_args_list == [call(500)] * 40
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.__dict__.get("event.outcome") == "failure"
+    )
+    assert failure_record.__dict__["event.reason"] == "page_not_ready"
 
 
 @pytest.mark.parametrize(
@@ -357,6 +365,12 @@ def test_scrape_returns_none_and_logs_when_navigation_fails(caplog):
         assert scraper.scrape(_EVENT_URL) is None
 
     assert "Ticketmaster navigation failed" in caplog.text
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.__dict__.get("event.outcome") == "failure"
+    )
+    assert failure_record.__dict__["event.reason"] == "navigation_failed"
 
 
 def test_scrape_extracts_prices_without_known_ticket_section_marker():
@@ -433,16 +447,38 @@ def test_scrape_logs_when_best_available_control_is_absent(caplog):
         assert scraper.scrape(_EVENT_URL) is None
 
     assert "no price found and no best-available control" in caplog.text
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.__dict__.get("event.outcome") == "failure"
+    )
+    fields = failure_record.__dict__
+    assert fields["event.action"] == "ticketmaster_price_scrape"
+    assert fields["event.reason"] == "no_price_or_best_available"
+    assert fields["url.original"] == _EVENT_URL
+    assert fields["scraper.page_language"] == "en"
+    assert fields["scraper.direct_price_count"] == 0
+    assert fields["scraper.best_available_found"] is False
+    assert fields["scraper.ticket_marker"] == "Search For Tickets"
+    assert fields["scraper.elapsed_ms"] >= 0
 
 
-def test_scrape_returns_none_when_best_available_click_fails():
+def test_scrape_returns_none_when_best_available_click_fails(caplog):
     scraper, _, best_control = scraper_for(
         "Search For Tickets\nNo prices yet",
         best_control_text="See best available",
     )
     best_control.click_callback = MagicMock(side_effect=RuntimeError("click failed"))
 
-    assert scraper.scrape(_EVENT_URL) is None
+    with caplog.at_level(logging.WARNING):
+        assert scraper.scrape(_EVENT_URL) is None
+
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.__dict__.get("event.outcome") == "failure"
+    )
+    assert failure_record.__dict__["event.reason"] == "extraction_failed"
 
 
 def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
@@ -459,16 +495,33 @@ def test_scrape_returns_none_when_click_does_not_reveal_prices(caplog):
     assert "no price found after best-available click" in caplog.text
 
 
-def test_scrape_logs_start_and_found_price_without_body_text(caplog):
+def test_success_log_contains_structured_diagnostics_without_body_text(caplog):
     body_only_text = "body-only-value"
     scraper, _, _ = scraper_for(
         f"Search For Tickets\nNormal ticket PLN 49\n{body_only_text}",
     )
 
     with caplog.at_level(logging.INFO):
-        scraper.scrape(_EVENT_URL)
+        result = scraper.scrape(_EVENT_URL)
 
+    assert result == Admission(False, 49, 49, "PLN")
     assert "Starting Ticketmaster price scrape" in caplog.text
     assert "price extraction phase=direct count=1" in caplog.text
     assert "final admission=" in caplog.text
     assert body_only_text not in caplog.text
+    success_record = next(
+        record
+        for record in caplog.records
+        if record.__dict__.get("event.outcome") == "success"
+    )
+    fields = success_record.__dict__
+    assert fields["event.action"] == "ticketmaster_price_scrape"
+    assert fields["url.original"] == _EVENT_URL
+    assert fields["scraper.page_language"] == "en"
+    assert fields["scraper.direct_price_count"] == 1
+    assert fields["scraper.best_available_found"] is False
+    assert fields["scraper.ticket_marker"] == "Search For Tickets"
+    assert fields["scraper.price_min"] == 49
+    assert fields["scraper.price_max"] == 49
+    assert fields["scraper.currency"] == "PLN"
+    assert fields["scraper.elapsed_ms"] >= 0

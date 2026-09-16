@@ -76,6 +76,21 @@ refactors must preserve.
 - Do not weaken malformed-output, unsupported-category, or unknown-event-ID
   validation in the agent.
 
+## Logging and Telemetry
+
+- Keep ECS JSON application logging on stdout regardless of whether external
+  telemetry export is configured.
+- Enable direct Elastic Managed OTLP/HTTP log export only when both
+  `ELASTIC_OTLP_ENDPOINT` and `ELASTIC_API_KEY` are present. Partial
+  configuration must remain non-fatal and disable export.
+- Treat `ELASTIC_OTLP_ENDPOINT` as non-secret configuration and
+  `ELASTIC_API_KEY` as a secret. Never log the API key or authorization header.
+- Telemetry setup, export, flush, or shutdown failure must not affect Telegram
+  delivery, history persistence, or the daily run's application behavior.
+- Flush batch-exported logs during scheduled-job shutdown.
+- Export logs only. Do not add an OpenTelemetry Collector,
+  auto-instrumentation, metrics, or traces without an explicit requirement.
+
 ## Tests
 
 - Prefer observable-behavior tests over implementation-detail tests.

@@ -50,6 +50,7 @@ Hugging Face Scheduled Job
 | `src/models.py` | Define shared event, admission, and recommendation dataclasses. |
 | `src/config.py` | Read and validate environment configuration. |
 | `src/history.py` | Load, validate, filter, and atomically persist seen event IDs. |
+| `src/logging_config.py` | Configure ECS JSON stdout logging and the optional direct OTLP log-export lifecycle. |
 | `src/tools/registry.py` | Define the model-visible tools and dispatch them to configured handlers. |
 | `src/tools/ticketmaster.py` | Call the Ticketmaster Discovery API and map responses into domain models. |
 | `src/tools/ticketmaster_price_scraper.py` | Own Camoufox and extract visible PLN prices from Ticketmaster pages. |
@@ -61,6 +62,21 @@ Hugging Face Scheduled Job
 `src/agent.py` does not know how browser scraping works, and the scraper does
 not know about agent conversations or Telegram. `src/daily.py` is the small
 composition root that sequences these boundaries.
+
+## Application Logging
+
+The ECS JSON stdout handler is always active and retains stable service
+metadata. When both `ELASTIC_OTLP_ENDPOINT` and `ELASTIC_API_KEY` are present,
+`src/logging_config.py` also attaches one OpenTelemetry logging handler backed
+by a batch processor and a direct OTLP/HTTP exporter to Elastic Managed OTLP.
+The endpoint is non-secret configuration; the API key is a secret and is never
+written to logs.
+
+`src/daily.py` shuts down the logging pipeline in its final cleanup so the
+short-lived job can flush batch-exported records. Missing, partial, or failing
+telemetry configuration cannot change delivery or persistence behavior. This
+integration covers logs only: it uses no OpenTelemetry Collector,
+auto-instrumentation, metrics, or traces.
 
 ## Probabilistic vs Deterministic Boundary
 

@@ -13,6 +13,16 @@ def test_load_scraper_proxy_url_is_optional(monkeypatch):
     assert config.load_scraper_proxy_url() == "socks5://127.0.0.1:1055"
 
 
+def test_load_elastic_logging_settings_is_optional(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    monkeypatch.delenv("ELASTIC_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("ELASTIC_API_KEY", raising=False)
+
+    settings = config.load_elastic_logging_settings()
+
+    assert settings == config.ElasticLoggingSettings(None, None)
+
+
 def test_load_settings_returns_all_environment_values(monkeypatch):
     values = {
         "OPENAI_API_KEY": "openai-test-key",
@@ -23,6 +33,8 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
         "EVENT_BASE_LOCATION_NAME": "Tychy",
         "EVENT_BASE_GEOPOINT": "u2y0test",
         "EVENT_SEARCH_RADIUS_KM": "50",
+        "ELASTIC_OTLP_ENDPOINT": "https://elastic.example",
+        "ELASTIC_API_KEY": "elastic-test-key",
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -36,6 +48,8 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
     assert settings.telegram_chat_id == "telegram-test-chat"
     assert settings.model == "test-model"
     assert settings.search_location == SearchLocation("Tychy", "u2y0test", 50)
+    assert settings.elastic_otlp_endpoint == "https://elastic.example"
+    assert settings.elastic_api_key == "elastic-test-key"
 
 
 def test_load_settings_reports_one_missing_variable(monkeypatch):

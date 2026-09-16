@@ -21,6 +21,7 @@ persistence remain deterministic.
 - Provider-authoritative `Admission` data
 - Deterministic Telegram HTML with escaped recommendation text
 - Per-event browser failure isolation
+- ECS-compatible JSON application logs on stdout
 - Offline automated tests that require no application secrets
 
 ## Architecture Flow
@@ -100,6 +101,8 @@ Face runtime wrapper separately reads its documented Tailscale variables.
 | `TELEGRAM_BOT_TOKEN` | Secret | Telegram bot credential |
 | `TELEGRAM_CHAT_ID` | Sensitive | Telegram delivery destination |
 | `MODEL` | Configuration | OpenAI model used by the agent |
+| `ELASTIC_OTLP_ENDPOINT` | Optional configuration | Elastic Managed OTLP base endpoint; direct export is enabled only with `ELASTIC_API_KEY` |
+| `ELASTIC_API_KEY` | Optional secret | Elastic API key; direct export is enabled only with `ELASTIC_OTLP_ENDPOINT` |
 | `EVENT_BASE_LOCATION_NAME` | Configuration | Human-readable search base |
 | `EVENT_BASE_GEOPOINT` | Configuration | Ticketmaster geohash for the search base |
 | `EVENT_SEARCH_RADIUS_KM` | Configuration | Positive search radius in kilometers |
@@ -129,6 +132,21 @@ Run the complete offline suite with:
 ```bash
 pytest -q
 ```
+
+## Logging
+
+Python application logs are emitted to stdout as one ECS-compatible JSON object
+per record. Every record includes `service.name=event-agent` and
+`service.environment=production`. When both `ELASTIC_OTLP_ENDPOINT` and
+`ELASTIC_API_KEY` are configured, the same Python log records are additionally
+batch-exported directly to Elastic Managed OTLP over HTTP. The application
+appends `/v1/logs` to the normalized base endpoint. With neither value, logging
+remains stdout-only; partial configuration emits a credential-free warning and
+does not enable export.
+
+`ELASTIC_OTLP_ENDPOINT` is non-secret configuration, while `ELASTIC_API_KEY` is
+a secret. This integration exports logs only. An OpenTelemetry Collector,
+auto-instrumentation, metrics, and traces are intentionally not enabled.
 
 ## Intentional Limitations
 
@@ -170,6 +188,7 @@ security requirements.
 │   ├── config.py                # environment configuration
 │   ├── daily.py                 # scheduled composition root
 │   ├── history.py               # seen-event persistence
+│   ├── logging_config.py        # ECS JSON logging configuration
 │   ├── models.py                # shared dataclasses
 │   ├── telegram_formatter.py    # deterministic Telegram HTML
 │   ├── telegram_notifier.py     # Telegram transport

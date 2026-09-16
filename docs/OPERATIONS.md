@@ -44,6 +44,11 @@ xvfb-run -a python src/daily.py
 - `TELEGRAM_BOT_TOKEN`: Telegram bot credential.
 - `TELEGRAM_CHAT_ID`: Telegram destination.
 - `MODEL`: OpenAI model name.
+- `ELASTIC_OTLP_ENDPOINT`: Optional, non-secret Elastic Managed OTLP base
+  endpoint. Direct log export is enabled only when `ELASTIC_API_KEY` is also
+  set.
+- `ELASTIC_API_KEY`: Optional secret for direct Elastic OTLP log export. Export
+  is enabled only when `ELASTIC_OTLP_ENDPOINT` is also set.
 - `EVENT_BASE_LOCATION_NAME`: Configured base location name, currently `Tychy`.
 - `EVENT_BASE_GEOPOINT`: Precomputed Ticketmaster geohash for the base location.
 - `EVENT_SEARCH_RADIUS_KM`: Positive Ticketmaster search radius in kilometers,
@@ -61,6 +66,25 @@ The Hugging Face wrapper reads two deployment variables directly:
 Use secret values only through the local `.env` file or the deployment
 environment. Never place real values in documentation, source code,
 Dockerfiles, image layers, or command history.
+
+## Application Logging
+
+Python application log records are written to stdout as one ECS-compatible JSON
+object per line. Records include stable `service.name=event-agent` and
+`service.environment=production` metadata. When both
+`ELASTIC_OTLP_ENDPOINT` and `ELASTIC_API_KEY` are present, the same Python log
+records are additionally batch-exported directly over OTLP/HTTP to Elastic
+Managed OTLP at the normalized base endpoint plus `/v1/logs`. With neither
+value, logging remains stdout-only. Supplying only one value leaves OTLP export
+disabled and produces a credential-free warning.
+
+Treat `ELASTIC_OTLP_ENDPOINT` as non-secret configuration and
+`ELASTIC_API_KEY` as a secret. For Hugging Face Jobs, pass the endpoint with
+`--env ELASTIC_OTLP_ENDPOINT=...` and the API key with `-s ELASTIC_API_KEY`, or
+omit both to disable export. There is no OpenTelemetry Collector or
+auto-instrumentation; metrics and traces are intentionally not enabled.
+Tailscale and runtime-wrapper output remains unchanged and is not formatted or
+exported by the Python logging configuration.
 
 ## Docker
 

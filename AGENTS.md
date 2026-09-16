@@ -24,6 +24,8 @@ Read [Architecture](docs/architecture.md) for system behavior and
 - `src/telegram_formatter.py`: deterministic Telegram HTML.
 - `src/telegram_notifier.py`: Telegram transport.
 - `src/history.py`: validated, atomic seen-ID persistence.
+- `src/logging_config.py`: root ECS JSON stdout logging, stable service
+  metadata, and optional direct OTLP log-export lifecycle.
 - `src/config.py`: the only Python application module that reads environment
   variables; deployment wrappers may read their documented infrastructure
   variables.
@@ -44,8 +46,8 @@ pip check
 git diff --check
 ```
 
-Unit tests must run without application secrets or real OpenAI, Ticketmaster,
-Telegram, or browser calls.
+Unit tests must run without application secrets and must not make real network
+calls, including OpenAI, Ticketmaster, Telegram, or browser calls.
 
 ## Non-negotiable Invariants
 
@@ -70,8 +72,8 @@ Telegram, or browser calls.
   multi-browser abstraction without an actual requirement.
 - Reuse one Camoufox browser and context for a recommendation batch.
 - Create one page per recommendation and close it after that scrape.
-- Preserve the explicit five-second post-navigation render wait until a proven
-  condition-based replacement is implemented.
+- Use the bounded condition-based Ticketmaster readiness wait. It must remain
+  non-fatal and must not be replaced with an arbitrary fixed sleep.
 - Keep proxy support to the optional `SCRAPER_PROXY_URL` passed directly to
   Camoufox. Do not add proxy credentials, provider layers, custom anti-bot, or
   CAPTCHA-handling logic without an explicit task.
@@ -82,6 +84,8 @@ Telegram, or browser calls.
   the HF wrapper may read only its documented Tailscale variables.
 - Treat `TAILSCALE_AUTHKEY` as a secret. Never print, commit, bake into an image,
   or pass it as a plain Hugging Face `--env` value.
+- Treat `ELASTIC_API_KEY` as a secret and `ELASTIC_OTLP_ENDPOINT` as non-secret
+  configuration. Never print or commit the API key.
 - Never expose credentials in logs, exceptions, or model-visible tool output.
 - Keep `.env` and runtime `data/seen_events.json` out of Git and Docker build
   context.
@@ -99,6 +103,9 @@ Telegram, or browser calls.
   admission authority, scraper reuse/page cleanup, failure isolation, delivery
   ordering, persistence, and credential sanitization.
 - Keep changes focused; do not modify unrelated modules.
+- Inspect only files relevant to the task and their direct dependencies; avoid
+  repository-wide scans unless necessary.
+- Do not commit changes unless explicitly requested.
 - Add type hints and concise docstrings to public APIs. Comments should explain
   why, not restate the code.
 
@@ -106,6 +113,18 @@ Telegram, or browser calls.
 
 - Keep the default container command usable without Tailscale.
 - Hugging Face runs `/app/scripts/run_hf.sh`, which owns Tailscale userspace
-  networking and then execs the application through Xvfb.
+  networking and then runs the application through Xvfb while retaining wrapper
+  lifecycle cleanup.
 - Keep the SOCKS5 listener bound to `127.0.0.1`; never expose the Raspberry Pi
   or 3proxy to the public internet.
+
+## Handoff Output
+
+After completing a task, report only:
+
+1. changed files
+2. what changed
+3. tests and validation executed with results
+4. unresolved issues
+
+Keep explanations concise.

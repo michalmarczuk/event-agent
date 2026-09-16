@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from typing import Any
 
 from camoufox.sync_api import NewBrowser
@@ -97,11 +98,39 @@ class TicketmasterPriceScraper:
 
     def scrape(self, event_url: str | None) -> Admission | None:
         """Return visible PLN admission pricing or ``None`` when unavailable."""
+        started_at = time.monotonic()
+        diagnostics: dict[str, object] = {
+            "event.action": "ticketmaster_price_scrape",
+        }
+
+        def outcome_fields(
+            outcome: str,
+            reason: str | None = None,
+        ) -> dict[str, object]:
+            fields = {
+                **diagnostics,
+                "event.outcome": outcome,
+                "scraper.elapsed_ms": int(
+                    (time.monotonic() - started_at) * 1_000
+                ),
+            }
+            if reason is not None:
+                fields["event.reason"] = reason
+            return fields
+
         if not event_url:
-            logger.warning("Ticketmaster price scrape skipped: missing event URL")
+            logger.warning(
+                "Ticketmaster price scrape skipped: missing event URL",
+                extra=outcome_fields("failure", "extraction_failed"),
+            )
             return None
 
-        logger.info("Starting Ticketmaster price scrape url=%s", event_url)
+        diagnostics["url.original"] = event_url
+        logger.info(
+            "Starting Ticketmaster price scrape url=%s",
+            event_url,
+            extra=diagnostics,
+        )
         try:
             context = self._ensure_context()
             page = context.new_page()
@@ -113,59 +142,87 @@ class TicketmasterPriceScraper:
                         timeout=self._timeout_ms,
                     )
                 except PlaywrightTimeoutError:
-                    logger.warning("Ticketmaster navigation timed out url=%s", event_url)
+                    logger.warning(
+                        "Ticketmaster navigation timed out url=%s",
+                        event_url,
+                        extra=outcome_fields("failure", "navigation_failed"),
+                    )
                     return None
                 except Exception:
                     logger.warning(
                         "Ticketmaster navigation failed url=%s",
                         event_url,
                         exc_info=True,
+                        extra=outcome_fields("failure", "navigation_failed"),
                     )
                     return None
 
-                logger.info("Ticketmaster page loaded url=%s", event_url)
-                self._wait_for_ticketmaster_content(page)
+                logger.info(
+                    "Ticketmaster page loaded url=%s",
+                    event_url,
+                    extra=diagnostics,
+                )
+                page_ready = self._wait_for_ticketmaster_content(page)
                 self._accept_cookies(page)
                 body = page.locator("body")
                 body_text = body.inner_text(timeout=self._timeout_ms)
                 page_variant = self._detect_page_variant(page, body_text)
+                diagnostics["scraper.page_language"] = page_variant
                 logger.info(
                     "Ticketmaster page language/variant=%s url=%s",
                     page_variant,
                     event_url,
+                    extra=diagnostics,
                 )
                 if _BLOCKED_PAGE_PATTERN.search(body_text):
-                    logger.warning("Ticketmaster blocked/security page detected url=%s", event_url)
+                    logger.warning(
+                        "Ticketmaster blocked/security page detected url=%s",
+                        event_url,
+                        extra=outcome_fields("failure", "extraction_failed"),
+                    )
                     return None
 
                 ticket_section, marker_text = self._find_ticket_section(page)
                 if marker_text is not None:
+                    diagnostics["scraper.ticket_marker"] = marker_text
                     logger.info(
                         "Ticketmaster ticket section marker matched text=%r url=%s",
                         marker_text,
                         event_url,
+                        extra=diagnostics,
                     )
                 prices = self._prices_from_visible_area(
                     ticket_section,
                     body_text,
                 )
+                diagnostics["scraper.direct_price_count"] = len(prices)
+                diagnostics["scraper.best_available_found"] = False
                 logger.info(
                     "Ticketmaster price extraction phase=direct count=%d url=%s",
                     len(prices),
                     event_url,
+                    extra=diagnostics,
                 )
                 if not prices:
                     control, control_text = self._find_best_available_control(page)
                     if control is None:
+                        failure_reason = (
+                            "no_price_or_best_available"
+                            if page_ready
+                            else "page_not_ready"
+                        )
                         logger.warning(
                             "Ticketmaster no price found and no best-available control url=%s",
                             event_url,
+                            extra=outcome_fields("failure", failure_reason),
                         )
                     else:
+                        diagnostics["scraper.best_available_found"] = True
                         logger.info(
                             "Ticketmaster best-available control matched text=%r url=%s",
                             control_text,
                             event_url,
+                            extra=diagnostics,
                         )
                         try:
                             control.click(timeout=self._timeout_ms)
@@ -174,6 +231,9 @@ class TicketmasterPriceScraper:
                                 "Ticketmaster best-available control click failed url=%s",
                                 event_url,
                                 exc_info=True,
+                                extra=outcome_fields(
+                                    "failure", "extraction_failed"
+                                ),
                             )
                         else:
                             page.wait_for_timeout(1_000)
@@ -186,11 +246,15 @@ class TicketmasterPriceScraper:
                                 "Ticketmaster price extraction phase=post-click count=%d url=%s",
                                 len(prices),
                                 event_url,
+                                extra=diagnostics,
                             )
                             if not prices:
                                 logger.warning(
                                     "Ticketmaster no price found after best-available click url=%s",
                                     event_url,
+                                    extra=outcome_fields(
+                                        "failure", "extraction_failed"
+                                    ),
                                 )
 
                 if not prices:
@@ -202,21 +266,34 @@ class TicketmasterPriceScraper:
                     price_max=max(prices),
                     currency="PLN",
                 )
+                diagnostics.update(
+                    {
+                        "scraper.price_min": admission.price_min,
+                        "scraper.price_max": admission.price_max,
+                        "scraper.currency": admission.currency,
+                    }
+                )
                 logger.info(
                     "Ticketmaster final admission=%s url=%s",
                     admission,
                     event_url,
+                    extra=outcome_fields("success"),
                 )
                 return admission
             finally:
                 page.close()
         except PlaywrightTimeoutError:
-            logger.warning("Ticketmaster price scrape timed out: %s", event_url)
+            logger.warning(
+                "Ticketmaster price scrape timed out: %s",
+                event_url,
+                extra=outcome_fields("failure", "extraction_failed"),
+            )
         except Exception:
             logger.warning(
                 "Ticketmaster price scrape failed: %s",
                 event_url,
                 exc_info=True,
+                extra=outcome_fields("failure", "extraction_failed"),
             )
         return None
 
@@ -247,7 +324,7 @@ class TicketmasterPriceScraper:
             )
         return self._context
 
-    def _wait_for_ticketmaster_content(self, page: Any) -> None:
+    def _wait_for_ticketmaster_content(self, page: Any) -> bool:
         body = page.locator("body")
         poll_count = _READINESS_TIMEOUT_MS // _READINESS_POLL_INTERVAL_MS
 
@@ -269,9 +346,10 @@ class TicketmasterPriceScraper:
                 len(body_text.strip()) >= _MIN_READY_BODY_TEXT_LENGTH
                 and has_ticket_signal
             ):
-                return
+                return True
             if attempt < poll_count:
                 page.wait_for_timeout(_READINESS_POLL_INTERVAL_MS)
+        return False
 
     @staticmethod
     def _detect_page_variant(page: Any, body_text: str) -> str:
