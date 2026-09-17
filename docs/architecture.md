@@ -10,7 +10,8 @@ Telegram report, and records the delivered recommendation IDs.
 The design makes the boundary between probabilistic selection and deterministic
 system behavior explicit. It is intentionally small: one discovery provider,
 one browser backend, synchronous execution, and at most seven recommendations
-per run.
+per run. Each Ticketmaster search supplies at most ten eligible unseen
+candidates to the agent.
 
 ## Non-goals
 
@@ -21,6 +22,15 @@ per run.
 - Generic proxy-provider abstractions, custom anti-bot, or CAPTCHA handling
 - Live external-service calls in the default test suite
 
+## System Overview
+
+<p align="center">
+  <img src="images/system-architecture-blueprint.png" width="900" alt="Event Agent system architecture">
+</p>
+
+The diagram shows the boundary between agent selection and deterministic
+delivery.
+
 ## End-to-end Flow
 
 ```text
@@ -30,7 +40,8 @@ Hugging Face Scheduled Job
     -> load seen recommendation IDs
     -> OpenAI Responses API agent loop
          <-> Ticketmaster Discovery API tools
-    -> grounded candidates
+              -> paginate up to five API pages; filter seen and canceled events
+    -> up to ten grounded, model-visible candidates per search
     -> OpenAI selects and validates recommendations
     -> Camoufox enriches final Ticketmaster recommendations
          -> local SOCKS5 endpoint
@@ -40,6 +51,12 @@ Hugging Face Scheduled Job
     -> Telegram delivery
     -> atomically persist recommended IDs after successful delivery
 ```
+
+<p align="center">
+  <img src="images/daily-run-flow-blueprint.png" width="900" alt="Daily event-agent flow">
+</p>
+
+The flow keeps history persistence after successful Telegram delivery.
 
 ## Module Responsibilities
 
@@ -71,6 +88,19 @@ metadata. When both `ELASTIC_OTLP_ENDPOINT` and `ELASTIC_API_KEY` are present,
 by a batch processor and a direct OTLP/HTTP exporter to Elastic Managed OTLP.
 The endpoint is non-secret configuration; the API key is a secret and is never
 written to logs.
+
+Structured records expose the boundaries of a run without full event payloads:
+
+- A successful `daily_run` record is emitted after Telegram delivery and
+  history persistence with duration, seen-loaded, recommended, and seen-saved
+  counts.
+- `ticketmaster_event_search` records API pages fetched, API events returned,
+  and unseen eligible events returned to the agent; canceled events also emit
+  `ticketmaster_event_filter` records with the dropped event ID.
+- `ticketmaster_price_scrape` records outcome, failure reason when applicable,
+  elapsed time, page language, ticket marker, direct-price count, and whether a
+  best-available control was found. Successful extraction also records the
+  price range and currency.
 
 `src/daily.py` shuts down the logging pipeline in its final cleanup so the
 short-lived job can flush batch-exported records. Missing, partial, or failing
@@ -121,6 +151,23 @@ generic loop forwards the handler's exception message, so sanitization belongs
 at each provider boundary. Ticketmaster HTTP failures are sanitized before they
 reach that model-visible payload. A failed tool call does not ground an event
 ID. Malformed tool arguments retain their existing fatal behavior.
+
+## Ticketmaster Discovery and Eligibility
+
+Each `search_events` request asks Ticketmaster for ten events per API page.
+The provider accumulates at most ten distinct eligible unseen events, advancing
+past pages dominated by previously seen IDs. It stops when it has ten results,
+Ticketmaster's pagination metadata reports no further page, or it reaches the
+five-page safety limit. If usable `totalPages` metadata is absent, a short page
+also ends pagination. The agent applies its own seen-ID and same-run filters
+before serializing at most ten events into each model-visible tool result.
+
+An event with `dates.status.code == "canceled"` is discarded before grounding
+or model exposure; a canceled detail lookup is rejected too. Other statuses,
+including postponed and rescheduled, are not excluded solely for their status.
+Successful search output is price-free, while provider `Admission` remains in
+private agent state for deterministic use after selection. The seven-item cap
+applies to final recommendations, not to search candidates.
 
 ## Grounding and `known_event_admissions`
 
@@ -177,16 +224,19 @@ local browser behavior is unchanged.
 For each production-owned Camoufox page, the scraper:
 
 1. Navigates to the event page.
-2. Waits five seconds for Ticketmaster rendering.
+2. Polls for up to 20 seconds, every 500 ms, for a sufficiently populated
+   visible body plus an extractable PLN price or a visible localized
+   best-available control. An accessibility "skip to tickets" marker alone does
+   not make the page ready.
 3. Accepts a visible Polish or English consent button when present.
 4. Extracts visible PLN prices directly when possible.
 5. Otherwise clicks the localized best-available control, waits one second, and
    extracts again.
 6. Converts supported comma/dot PLN values to a minimum/maximum Admission range.
 
-Blocked, unavailable, timed-out, or otherwise failed pages return `None`. The
-five-second render wait is an explicit temporary choice and may later be
-replaced by a proven condition-based wait.
+Readiness timeout is non-fatal: the scraper still tries consent handling and
+the existing extraction path. Blocked, unavailable, or otherwise failed pages
+return `None`; they never make the whole daily run fail.
 
 ## Failure Boundaries
 
@@ -231,12 +281,15 @@ objects. Meaningful behavioral coverage includes:
 - grounding, same-run deduplication, seen-ID filtering, and unknown-ID rejection;
 - model-visible search output excludes Admission while the internally retained
   value reaches the final Recommendation;
-- Ticketmaster query construction and response mapping;
-- localized consent, direct and post-click price extraction;
+- Ticketmaster pagination past seen events, ten-result/five-page limits,
+  canceled-event filtering, query construction, and response mapping;
+- localized consent, bounded readiness (including accessibility-skip markers),
+  and direct and post-click price extraction;
 - one scraper lifecycle per final batch and per-page cleanup;
 - non-fatal enrichment failures and Admission preservation;
 - deterministic Telegram formatting and credential-safe failures;
-- delivery-before-persistence ordering and atomic history writes.
+- delivery-before-persistence ordering, atomic history writes, and structured
+  daily-run summary logging.
 
 Live Ticketmaster/Camoufox checks are manual or opt-in because they depend on
 network access, a third-party UI, and anti-bot behavior. They are not part of
@@ -251,8 +304,8 @@ deterministic CI.
   seven recommendations.
 - **In-place enrichment:** the mutation is explicit and keeps pipeline wiring
   small.
-- **Fixed render wait:** five seconds is predictable and proven locally, though
-  less efficient than a future reliable page-ready condition.
+- **Bounded UI readiness:** the scraper polls for actionable ticket content for
+  at most 20 seconds, then falls through without failing the daily run.
 - **UI-dependent pricing:** browser enrichment can degrade gracefully while API
   discovery and Telegram delivery continue.
 
@@ -262,6 +315,13 @@ GitHub Actions runs tests and publishes the image to GHCR. Hugging Face Jobs is
 the intended scheduler, and a Hugging Face Storage Bucket provides `/app/data`.
 See [Operations](OPERATIONS.md) for the existing runbook.
 
+<p align="center">
+  <img src="images/hf-runtime-networking-blueprint.png" width="900" alt="Hugging Face runtime networking">
+</p>
+
+The runtime routes Camoufox through a local SOCKS5 endpoint and Raspberry Pi
+exit node.
+
 The container has two explicit startup paths:
 
 ```text
@@ -269,11 +329,17 @@ Local/default container:
     tini -> xvfb-run -> python src/daily.py
 
 Hugging Face Job:
-    tini -> scripts/run_hf.sh
+    tini -> scripts/run_hf.sh (retains process and cleanup traps)
          -> tailscaled userspace SOCKS5 on 127.0.0.1:1055
          -> Raspberry Pi exit node
-         -> exec xvfb-run -a python src/daily.py
+         -> xvfb-run -> python src/daily.py (child process)
+         -> wrapper waits, then cleans up tailscaled
 ```
+
+The Docker build selects Camoufox browser
+`official/stable/152.0.4-beta.30`, fetches it, and calls `installed_verstr()` so
+the build fails if the browser payload is not installed. The Python package is
+pinned separately to `camoufox==0.5.6`.
 
 The HF wrapper exports the local SOCKS5 URL as `SCRAPER_PROXY_URL`, so only
 Camoufox browser traffic uses the Raspberry Pi/home-network egress. The

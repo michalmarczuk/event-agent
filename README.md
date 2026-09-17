@@ -10,6 +10,14 @@ prices, delivery, and history.
 
 ## How it works
 
+<p align="center">
+  <img src="docs/images/system-architecture-blueprint.png" width="900" alt="Event Agent system architecture">
+</p>
+
+The architecture separates agent selection from deterministic enrichment and delivery.
+
+### Daily execution
+
 ```text
 Hugging Face Jobs / Docker -> daily.py -> load /app/data/seen_events.json
   -> Ticketmaster Discovery API (paginate; filter seen and canceled events)
@@ -19,6 +27,12 @@ Hugging Face Jobs / Docker -> daily.py -> load /app/data/seen_events.json
   -> deterministic Telegram HTML -> Telegram API
   -> save recommended IDs to /app/data/seen_events.json after successful delivery
 ```
+
+<p align="center">
+  <img src="docs/images/daily-run-flow-blueprint.png" width="900" alt="Daily event-agent flow">
+</p>
+
+The daily flow persists recommended IDs only after Telegram delivery succeeds.
 
 The Discovery API supplies candidate events. The agent can call tools and
 continue its Responses API conversation, but can recommend only IDs grounded by
@@ -85,6 +99,8 @@ docker build -t event-agent:local .
 docker run --rm --env-file .env -v "$PWD/data:/app/data" event-agent:local
 ```
 
+### Hugging Face runtime
+
 Hugging Face Jobs can schedule the image with `/app/scripts/run_hf.sh` as its
 command and persistent `/app/data` storage. The wrapper starts Tailscale in
 userspace mode, connects to the Raspberry Pi exit node, sets a loopback SOCKS5
@@ -94,6 +110,12 @@ credentials; the HF wrapper additionally needs `TAILSCALE_AUTHKEY` and
 `TAILSCALE_EXIT_NODE`. Elastic export is optional. See the sanitized
 [configuration template](.env.example) and [operations runbook](docs/OPERATIONS.md)
 for settings and the HF Jobs command.
+
+<p align="center">
+  <img src="docs/images/hf-runtime-networking-blueprint.png" width="900" alt="Hugging Face runtime networking">
+</p>
+
+The runtime routes Camoufox traffic through Tailscale and the Raspberry Pi exit node.
 
 ## More detail
 
