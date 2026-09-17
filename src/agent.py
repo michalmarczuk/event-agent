@@ -188,7 +188,12 @@ def _execute_tool_call(
 ):
     arguments = json.loads(tool_call.arguments)
     try:
-        result = execute_tool(tool_handlers, tool_call.name, arguments)
+        provider_arguments = arguments
+        if tool_call.name == "search_events":
+            provider_arguments = arguments | {
+                "seen_event_ids": seen_event_ids | known_event_admissions.keys()
+            }
+        result = execute_tool(tool_handlers, tool_call.name, provider_arguments)
     except Exception as exception:
         logger.warning("Tool execution failed tool=%s", tool_call.name)
         return {
@@ -201,7 +206,7 @@ def _execute_tool_call(
         result = filter_unseen_events(
             result,
             seen_event_ids | known_event_admissions.keys(),
-        )
+        )[:10]
         logger.info(
             "search_events returned=%d unseen=%d",
             returned_count,

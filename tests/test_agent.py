@@ -161,7 +161,7 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     execute_tool_mock.assert_called_once()
     assert execute_tool_mock.call_args.args[1:] == (
         "search_events",
-        {"days_ahead": 30},
+        {"days_ahead": 30, "seen_event_ids": set()},
     )
     assert create.call_count == 2
     for response_call in create.call_args_list:
@@ -314,6 +314,79 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
         )
 
 
+def test_model_visible_search_is_capped_after_skipping_seen_first_page():
+    tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    client = TicketmasterClient(
+        "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
+    )
+    seen_ids = {f"seen-{index}" for index in range(10)}
+    data = [
+        {
+            "page": {"number": page_number, "totalPages": 3},
+            "_embedded": {
+                "events": [
+                    {"id": event_id, "name": f"Concert {event_id}"}
+                    for event_id in event_ids
+                ]
+            },
+        }
+        for page_number, event_ids in enumerate(
+            (sorted(seen_ids), [f"new-{index}" for index in range(10)])
+        )
+    ]
+    known_event_admissions = {}
+
+    with patch(
+        "src.tools.ticketmaster._get_ticketmaster_data", side_effect=data
+    ) as get:
+        result = agent._execute_tool_call(
+            {"search_events": client.search_events},
+            tool_call,
+            seen_event_ids=seen_ids,
+            known_event_admissions=known_event_admissions,
+        )
+
+    model_visible = json.loads(
+        agent._build_function_call_output(tool_call, result)["output"]
+    )
+    assert get.call_count == 2
+    assert len(model_visible) == 10
+    assert [event["id"] for event in model_visible] == [
+        f"new-{index}" for index in range(10)
+    ]
+    assert set(known_event_admissions) == {
+        f"new-{index}" for index in range(10)
+    }
+
+
+def test_model_visible_search_caps_oversized_tool_result_after_filtering():
+    tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    events = [
+        Event(event_id, event_id, None, None, None, None, "ticketmaster")
+        for event_id in ["seen", *(f"new-{index}" for index in range(12))]
+    ]
+    known_event_admissions = {}
+
+    with patch.object(agent, "execute_tool", return_value=events):
+        result = agent._execute_tool_call(
+            {},
+            tool_call,
+            seen_event_ids={"seen"},
+            known_event_admissions=known_event_admissions,
+        )
+
+    assert [event["id"] for event in result] == [
+        f"new-{index}" for index in range(10)
+    ]
+    assert set(known_event_admissions) == {
+        f"new-{index}" for index in range(10)
+    }
+
+
 def test_canceled_event_details_do_not_ground_event_id():
     tool_call = _tool_response(
         "response-1", "get_event_details", "call-1", event_id="canceled-event"
@@ -422,7 +495,7 @@ def test_run_agent_filters_seen_and_same_run_events():
     new_event = Event("new", "New event", None, None, None, None, "test")
     latest_event = Event("latest", "Latest event", None, None, None, None, "test")
 
-    result, create, _ = _run_with_tool_results(
+    result, create, execute_tool_mock = _run_with_tool_results(
         [
             _tool_response("response-1", "search_events", "call-1", days_ahead=30),
             _tool_response("response-2", "search_events", "call-2", days_ahead=30),
@@ -443,6 +516,12 @@ def test_run_agent_filters_seen_and_same_run_events():
     del expected_latest_event["admission"]
     assert first_output == [expected_new_event]
     assert second_output == [expected_latest_event]
+    assert execute_tool_mock.call_args_list[0].args[2]["seen_event_ids"] == {
+        "seen"
+    }
+    assert execute_tool_mock.call_args_list[1].args[2]["seen_event_ids"] == {
+        "seen", "new"
+    }
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
 

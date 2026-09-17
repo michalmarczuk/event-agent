@@ -12,6 +12,9 @@ except ImportError:  # pragma: no cover - supports script execution
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_PAGE_SIZE = 10
+_MAX_SEARCH_PAGES = 5
+
 
 def _log_canceled_event(event_id: str) -> None:
     logger.info(
@@ -50,7 +53,12 @@ class TicketmasterClient:
         self.api_key = api_key
         self.location = location
 
-    def search_events(self, days_ahead: int) -> list[Event]:
+    def search_events(
+        self,
+        days_ahead: int,
+        seen_event_ids: set[str] | None = None,
+    ) -> list[Event]:
+        """Return up to ten eligible events, paging past previously seen IDs."""
         logger.info("Searching Ticketmaster events near %s", self.location.name)
 
         url = "https://app.ticketmaster.com/discovery/v2/events.json"
@@ -64,21 +72,58 @@ class TicketmasterClient:
             "unit": "km",
             "countryCode": "PL",
             "classificationName": "-sports",
-            "size": 10,
+            "size": _SEARCH_PAGE_SIZE,
             "sort": "date,asc",
             "startDateTime": start_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
             "endDateTime": end_datetime.isoformat(timespec="seconds").replace("+00:00", "Z"),
         }
 
-        data = _get_ticketmaster_data(url, params)
-        events = data.get("_embedded", {}).get("events", [])
-
+        excluded_ids = set(seen_event_ids or ())
         discovered_events = []
-        for event in events:
-            if event.get("dates", {}).get("status", {}).get("code") == "canceled":
-                _log_canceled_event(event["id"])
-                continue
-            discovered_events.append(self._event_from_response(event))
+        pages_fetched = 0
+        api_returned = 0
+        for page_number in range(_MAX_SEARCH_PAGES):
+            data = _get_ticketmaster_data(url, params | {"page": page_number})
+            pages_fetched += 1
+            events = data.get("_embedded", {}).get("events", [])
+            api_returned += len(events)
+
+            for event in events:
+                if event.get("dates", {}).get("status", {}).get("code") == "canceled":
+                    _log_canceled_event(event["id"])
+                    continue
+                if event["id"] in excluded_ids:
+                    continue
+                discovered_events.append(self._event_from_response(event))
+                excluded_ids.add(event["id"])
+                if len(discovered_events) == _SEARCH_PAGE_SIZE:
+                    break
+
+            if len(discovered_events) == _SEARCH_PAGE_SIZE:
+                break
+
+            page_info = data.get("page")
+            if not isinstance(page_info, dict):
+                page_info = {}
+            reported_page = page_info.get("number")
+            if not isinstance(reported_page, int) or isinstance(reported_page, bool):
+                reported_page = page_number
+            total_pages = page_info.get("totalPages")
+            if isinstance(total_pages, int) and not isinstance(total_pages, bool):
+                if reported_page + 1 >= total_pages:
+                    break
+            elif len(events) < _SEARCH_PAGE_SIZE:
+                break
+
+        logger.info(
+            "Ticketmaster event search completed",
+            extra={
+                "event.action": "ticketmaster_event_search",
+                "events.api_pages_fetched": pages_fetched,
+                "events.api_returned": api_returned,
+                "events.unseen_eligible": len(discovered_events),
+            },
+        )
         return discovered_events
 
     def _event_from_response(self, event: dict) -> Event:
