@@ -29,6 +29,20 @@ def test_enrichment_reuses_one_scraper_for_multiple_recommendations():
     assert second.admission == FakeScraper.prices[second.url]
 
 
+def test_enrichment_replaces_existing_admission_after_successful_scrape():
+    existing = Admission(False, 100, 100, "PLN")
+    scraped = Admission(False, 150, 150, "PLN")
+    selected = recommendation(
+        "event", "https://www.ticketmaster.pl/event/1", existing
+    )
+    FakeScraper.prices = {selected.url: scraped}
+
+    enrich_ticketmaster_prices([selected], FakeScraper)
+
+    assert selected.admission == scraped
+    assert selected.admission != existing
+
+
 def test_enrichment_keeps_existing_admission_when_scrape_returns_none():
     existing = Admission(False, 20, 20, "PLN")
     recommendation_to_update = recommendation(

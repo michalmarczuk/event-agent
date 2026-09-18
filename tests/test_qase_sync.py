@@ -3,8 +3,24 @@ from pathlib import Path
 
 import pytest
 import requests
+import yaml
 
 from scripts import sync_qase_cases as qase
+
+
+_TEST_CASES_YAML = """\
+suites:
+  - name: Event Discovery
+    cases:
+      - title: Canceled Ticketmaster events are excluded
+        description: Canceled Ticketmaster events are excluded before recommendations.
+        preconditions: The response includes dates.status.code=canceled.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute event search with a canceled Ticketmaster event.
+            expected: Ticketmaster response is processed successfully.
+"""
 
 
 def _response(result, status_code=200):
@@ -49,14 +65,24 @@ class FakeSession:
 
 
 def _suites():
-    return qase.load_cases(qase.CASES_FILE)
+    return yaml.safe_load(_TEST_CASES_YAML)["suites"]
+
+
+def _use_test_catalog(monkeypatch, tmp_path):
+    cases_file = tmp_path / "qase_cases.yaml"
+    cases_file.write_text(_TEST_CASES_YAML, encoding="utf-8")
+    monkeypatch.setattr(qase, "CASES_FILE", cases_file)
 
 
 def test_case_file_contains_canceled_event_regression():
-    suites = _suites()
+    suites = qase.load_cases(qase.CASES_FILE)
 
-    assert [suite["name"] for suite in suites] == ["Event Discovery"]
-    case = suites[0]["cases"][0]
+    event_discovery = next(suite for suite in suites if suite["name"] == "Event Discovery")
+    case = next(
+        case
+        for case in event_discovery["cases"]
+        if case["title"] == "Canceled Ticketmaster events are excluded"
+    )
     assert case["title"] == "Canceled Ticketmaster events are excluded"
     assert case["priority"] == "high"
     assert case["automated"] is True
@@ -107,6 +133,77 @@ def test_sync_creates_missing_suite_and_classic_case(automated, is_manual):
         "action": "Execute event search with a canceled Ticketmaster event.",
         "expected_result": "Ticketmaster response is processed successfully.",
     }
+
+
+def test_sync_creates_cases_across_multiple_suites():
+    suites = _suites()
+    suites.append(
+        {
+            "name": "Price Enrichment",
+            "cases": [{**suites[0]["cases"][0], "title": "Scraped prices replace old prices"}],
+        }
+    )
+    suite_ids = {"Event Discovery": 7, "Price Enrichment": 8}
+    created_cases = []
+
+    def handler(method, path, kwargs):
+        if (method, path) == ("GET", "/suite/EA"):
+            return _list_response([])
+        if (method, path) == ("POST", "/suite/EA"):
+            return _response(
+                {"status": True, "result": {"id": suite_ids[kwargs["json"]["title"]]}}
+            )
+        if (method, path) == ("GET", "/case/EA"):
+            return _list_response([])
+        if (method, path) == ("POST", "/case/EA"):
+            created_cases.append((kwargs["json"]["suite_id"], kwargs["json"]["title"]))
+            return _response({"status": True, "result": {"id": len(created_cases)}})
+        raise AssertionError((method, path))
+
+    summary = qase.sync_cases(FakeSession(handler), suites)
+
+    assert summary == {
+        "suites_created": 2,
+        "cases_created": 2,
+        "cases_updated": 0,
+        "cases_unchanged": 0,
+    }
+    assert created_cases == [
+        (7, "Canceled Ticketmaster events are excluded"),
+        (8, "Scraped prices replace old prices"),
+    ]
+
+
+def test_sync_creates_multiple_cases_in_one_suite():
+    suites = _suites()
+    suites[0]["cases"].append(
+        {**suites[0]["cases"][0], "title": "Postponed events remain eligible"}
+    )
+    created_titles = []
+
+    def handler(method, path, kwargs):
+        if (method, path) == ("GET", "/suite/EA"):
+            return _list_response([{"id": 7, "title": "Event Discovery"}])
+        if (method, path) == ("GET", "/case/EA"):
+            assert kwargs["params"]["suite_id"] == 7
+            return _list_response([])
+        if (method, path) == ("POST", "/case/EA"):
+            created_titles.append(kwargs["json"]["title"])
+            return _response({"status": True, "result": {"id": len(created_titles)}})
+        raise AssertionError((method, path))
+
+    summary = qase.sync_cases(FakeSession(handler), suites)
+
+    assert summary == {
+        "suites_created": 0,
+        "cases_created": 2,
+        "cases_updated": 0,
+        "cases_unchanged": 0,
+    }
+    assert created_titles == [
+        "Canceled Ticketmaster events are excluded",
+        "Postponed events remain eligible",
+    ]
 
 
 def test_second_sync_does_not_create_duplicates_or_patch_unchanged_case():
@@ -290,9 +387,10 @@ def test_dry_run_compares_current_automation_fields_only(
     assert ("automated: changed" in output) is needs_update
 
 
-def test_cli_api_failure_is_nonzero_and_never_prints_token(monkeypatch, capsys):
+def test_cli_api_failure_is_nonzero_and_never_prints_token(monkeypatch, tmp_path, capsys):
     token = "super-secret-qase-token"
     monkeypatch.setenv("QASE_API_TOKEN", token)
+    _use_test_catalog(monkeypatch, tmp_path)
 
     def handler(_method, _path, _kwargs):
         return _response({"status": False, "message": token}, status_code=401)
@@ -337,10 +435,11 @@ def test_cli_api_failure_is_nonzero_and_never_prints_token(monkeypatch, capsys):
     ],
 )
 def test_patch_error_includes_safe_response_detail(
-    failure_response, expected_detail, monkeypatch, capsys
+    failure_response, expected_detail, monkeypatch, tmp_path, capsys
 ):
     token = "super-secret-qase-token"
     monkeypatch.setenv("QASE_API_TOKEN", token)
+    _use_test_catalog(monkeypatch, tmp_path)
     desired = qase._case_payload(_suites()[0]["cases"][0], 7)
 
     def handler(method, path, _kwargs):
@@ -395,9 +494,12 @@ def test_plain_text_error_excerpt_is_bounded():
     assert len(str(error.value)) < 250
 
 
-def test_cli_dry_run_prints_summary_without_writing_or_exposing_token(monkeypatch, capsys):
+def test_cli_dry_run_prints_summary_without_writing_or_exposing_token(
+    monkeypatch, tmp_path, capsys
+):
     token = "super-secret-qase-token"
     monkeypatch.setenv("QASE_API_TOKEN", token)
+    _use_test_catalog(monkeypatch, tmp_path)
     session = FakeSession(
         lambda method, path, _kwargs: _list_response([])
         if (method, path) == ("GET", "/suite/EA")
@@ -419,10 +521,11 @@ def test_cli_dry_run_prints_summary_without_writing_or_exposing_token(monkeypatc
 
 @pytest.mark.parametrize("dry_run", [True, False])
 def test_cli_update_diff_is_dry_run_only_and_redacts_raw_values(
-    dry_run, monkeypatch, capsys
+    dry_run, monkeypatch, tmp_path, capsys
 ):
     token = "super-secret-qase-token"
     monkeypatch.setenv("QASE_API_TOKEN", token)
+    _use_test_catalog(monkeypatch, tmp_path)
     desired = qase._case_payload(_suites()[0]["cases"][0], 7)
     stored = {
         "id": 11,
@@ -469,9 +572,12 @@ def test_cli_update_diff_is_dry_run_only_and_redacts_raw_values(
     assert "unmanaged_api_field" not in output.out
 
 
-def test_network_error_does_not_expose_request_exception_text(monkeypatch, capsys):
+def test_network_error_does_not_expose_request_exception_text(
+    monkeypatch, tmp_path, capsys
+):
     token = "super-secret-qase-token"
     monkeypatch.setenv("QASE_API_TOKEN", token)
+    _use_test_catalog(monkeypatch, tmp_path)
 
     def handler(_method, _path, _kwargs):
         raise requests.ConnectionError(f"Connection failed with {token}")

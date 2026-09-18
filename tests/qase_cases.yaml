@@ -19,3 +19,123 @@ suites:
             expected: The canceled event ID is not present and cannot be recommended.
           - action: Inspect structured logs.
             expected: event.action=ticketmaster_event_filter and event.reason=canceled.
+
+  - name: Agent Grounding & Selection
+    cases:
+      - title: Recommendations require successfully grounded event IDs
+        description: >-
+          The agent may select only events grounded by successful tool calls;
+          failed calls and invented IDs must not become recommendations.
+        preconditions: >-
+          The agent receives controlled tool results and a final recommendation response.
+        priority: high
+        automated: true
+        steps:
+          - action: Return an unknown event ID in the final recommendation response.
+            expected: Recommendation validation rejects the unknown ID.
+          - action: Return event details successfully, then recommend that event ID.
+            expected: The ID is accepted as grounded.
+          - action: Fail an event-details tool call, then recommend its requested ID.
+            expected: The tool error is returned to the model and the ID remains ungrounded.
+          - action: Inspect the successful agent result after selecting a subset of discovered events.
+            expected: Only selected recommendation IDs appear in recommended_event_ids.
+
+      - title: Seen and same-run duplicate events are excluded
+        description: >-
+          Prior history and earlier search results in the same run must not be
+          presented to the model again as fresh candidates.
+        preconditions: >-
+          A seen ID is supplied and consecutive searches return an overlapping event ID.
+        priority: medium
+        automated: true
+        steps:
+          - action: Run the first event search with one seen and one new event.
+            expected: Only the new event is visible in the tool result.
+          - action: Run a second search returning the same new event and another new event.
+            expected: The repeated ID is excluded and only the fresh event is visible.
+
+      - title: Model-visible search results contain no Admission or ticket prices
+        description: >-
+          Provider pricing remains internal and is not exposed in event data sent to the LLM.
+        preconditions: >-
+          A successful search returns an event with provider Admission and distinctive price values.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute the event search through the agent tool loop.
+            expected: The event ID is available for grounded selection.
+          - action: Inspect the search result sent in the OpenAI continuation.
+            expected: It contains no Admission field, price fields, or provider price values.
+
+      - title: Provider Admission remains authoritative in final recommendations
+        description: >-
+          Recommendation parsing uses internally retained provider Admission,
+          including after a successful event-details lookup.
+        preconditions: >-
+          Search discovers an event with Admission and the model selects its event ID.
+        priority: high
+        automated: true
+        steps:
+          - action: Parse the model's final recommendation for the discovered event.
+            expected: The Recommendation receives the Admission supplied by the provider.
+          - action: Fetch event details after search and parse the final recommendation again.
+            expected: The details lookup does not erase the Admission discovered during search.
+
+      - title: Model-visible search results are capped at ten eligible events
+        description: >-
+          The agent must not expose more than ten eligible unseen events from one search result.
+        preconditions: >-
+          A tool returns more than ten events, including an ID already seen before the run.
+        priority: medium
+        automated: true
+        steps:
+          - action: Process the oversized event-search result.
+            expected: The seen event is filtered out before selecting candidates.
+          - action: Inspect model-visible output and the agent's grounded event IDs.
+            expected: No more than ten fresh events are exposed or grounded.
+
+  - name: Price Enrichment
+    cases:
+      - title: Only final Ticketmaster recommendations are price-enriched
+        description: >-
+          Enrichment scrapes only selected recommendations with valid Ticketmaster URLs.
+        preconditions: >-
+          Final recommendations include Ticketmaster, non-Ticketmaster, and malformed URLs.
+        priority: medium
+        automated: true
+        steps:
+          - action: Run price enrichment for the final recommendation list.
+            expected: Only valid Ticketmaster event URLs are sent to the scraper.
+          - action: Inspect recommendations with non-Ticketmaster or malformed URLs.
+            expected: They are not scraped, and any existing Admission is unchanged.
+
+      - title: Successful scrape replaces prior Admission with provider pricing
+        description: >-
+          A successful Ticketmaster page scrape becomes the authoritative Admission
+          for the selected recommendation.
+        preconditions: >-
+          A selected Ticketmaster recommendation has existing Admission and the scraper returns a different Admission.
+        priority: high
+        automated: true
+        steps:
+          - action: Enrich the selected Ticketmaster recommendation.
+            expected: The scraper returns a valid provider Admission.
+          - action: Inspect the recommendation after enrichment.
+            expected: Its prior Admission is replaced by the scraped provider Admission.
+
+      - title: Unavailable or failed price scraping preserves Admission and continues
+        description: >-
+          Missing prices or an individual scraper failure must not erase existing
+          Admission or prevent later recommendations from being enriched.
+        preconditions: >-
+          A batch contains Ticketmaster recommendations with an existing Admission,
+          an unavailable or failing scrape, and another event with an available price.
+        priority: high
+        automated: true
+        steps:
+          - action: Return no price for one recommendation.
+            expected: Its existing Admission is preserved.
+          - action: Raise a scraper error for another recommendation in the batch.
+            expected: Enrichment does not fail the batch.
+          - action: Process a subsequent recommendation with a successful scrape.
+            expected: Its scraped Admission is applied.
