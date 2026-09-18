@@ -96,7 +96,7 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
     monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO):
         runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
@@ -171,7 +171,7 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch, caplog):
     monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
     monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
         RuntimeError, match="Telegram unavailable"
     ):
@@ -228,7 +228,7 @@ def test_daily_does_not_report_success_when_history_save_fails(monkeypatch, capl
     monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
     monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
         RuntimeError, match="History unavailable"
     ):
@@ -300,7 +300,7 @@ def test_daily_summary_logging_failure_does_not_fail_delivery(monkeypatch):
             if name == "__main__"
             else original_get_logger(name),
         )
-        project_root = Path(__file__).resolve().parents[1]
+        project_root = Path(__file__).resolve().parents[2]
         runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
     assert operations == [
@@ -352,7 +352,7 @@ def test_daily_persists_only_recommended_event_ids(monkeypatch):
     monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
     monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
     assert saved_ids == [{"event-1", "event-2"}]
