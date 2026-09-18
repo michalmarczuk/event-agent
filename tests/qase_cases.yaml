@@ -1,0 +1,21 @@
+suites:
+  - name: Event Discovery
+    cases:
+      - title: Canceled Ticketmaster events are excluded
+        description: >-
+          Canceled Ticketmaster events must be removed before the agent sees
+          search results or selects recommendations.
+        preconditions: >-
+          A Ticketmaster Discovery API response includes an event whose
+          dates.status.code is canceled.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute event search with a canceled Ticketmaster event.
+            expected: Ticketmaster response is processed successfully.
+          - action: Apply event eligibility filtering.
+            expected: The canceled event is excluded from eligible results.
+          - action: Inspect model-visible search results.
+            expected: The canceled event ID is not present and cannot be recommended.
+          - action: Inspect structured logs.
+            expected: event.action=ticketmaster_event_filter and event.reason=canceled.
