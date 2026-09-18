@@ -1,43 +1,6 @@
-from src.models import Admission, Recommendation
-from src.telegram_formatter import format_telegram_message
+from src.models import Admission
 from src.ticketmaster_enrichment import enrich_ticketmaster_prices
-
-
-def recommendation(event_id, url, admission=None):
-    return Recommendation(
-        event_id=event_id,
-        name=event_id,
-        category="music",
-        date=None,
-        time=None,
-        city=None,
-        venue=None,
-        reason="A good event.",
-        url=url,
-        admission=admission,
-    )
-
-
-class FakeScraper:
-    instances = []
-    prices = {}
-
-    def __init__(self):
-        self.scraped_urls = []
-        self.__class__.instances.append(self)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exception_type, exception, traceback):
-        return None
-
-    def scrape(self, url):
-        self.scraped_urls.append(url)
-        value = self.prices.get(url)
-        if isinstance(value, Exception):
-            raise value
-        return value
+from tests.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 
 
 def test_enrichment_scrapes_only_final_ticketmaster_recommendations():
@@ -106,18 +69,3 @@ def test_enrichment_skips_malformed_url_and_continues():
     assert malformed.admission == existing
     assert valid.admission == expected
 
-
-def test_enrichment_output_is_rendered_in_telegram_message():
-    ticketmaster_recommendation = recommendation(
-        "event", "https://www.ticketmaster.pl/event/1"
-    )
-    FakeScraper.prices = {
-        ticketmaster_recommendation.url: Admission(False, 37.10, 63.60, "PLN")
-    }
-
-    enrich_ticketmaster_prices([ticketmaster_recommendation], FakeScraper)
-    message = format_telegram_message(
-        [ticketmaster_recommendation], "Tychy", 50, 30
-    )
-
-    assert "🎟 37,10–63,60 zł" in message
