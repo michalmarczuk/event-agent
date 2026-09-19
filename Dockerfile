@@ -32,7 +32,11 @@ COPY data/ data/
 COPY scripts/ scripts/
 COPY tests/ tests/
 COPY pytest.ini .
-RUN chmod 0755 scripts/run_hf.sh scripts/run_hf_smoke.sh
+RUN chmod 0755 \
+    scripts/run_hf.sh \
+    scripts/run_hf_qase_smoke.sh \
+    scripts/run_hf_smoke.sh \
+    scripts/run_hf_smoke_runtime.sh
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["/app/scripts/run_hf_smoke.sh"]

@@ -62,6 +62,5 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     raise pytest.UsageError(
         "Qase reporting safety guard rejected "
         f"{len(unlinked_node_ids)} selected test(s) without the qase marker: "
-        f"{preview}. Select only linked tests with "
-        "-m \"qase and not smoke\"."
+        f"{preview}. Select only linked tests with a qase marker expression."
     )

@@ -34,6 +34,10 @@ reporter's credential variable without printing it. Qase reporting remains off
 for normal pytest commands. The four linked live smoke cases are separate and
 are never selected by this offline reporting command.
 
+Offline regression and live smoke results are published as separate Qase runs.
+The case synchronizer manages catalog definitions only; it does not publish
+pytest execution results.
+
 Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
 
@@ -152,6 +156,47 @@ GitHub Actions publishes `production` to `ghcr.io/michalmarczuk/event-agent`
 and `test-runtime` separately to
 `ghcr.io/michalmarczuk/event-agent-tests`. Use the test package for the
 Hugging Face diagnostic job; it does not replace the production tags.
+
+Run the four live smoke checks on Hugging Face without Qase reporting:
+
+```bash
+hf jobs run \
+  --name event-agent-live-smoke \
+  --flavor cpu-basic \
+  --env TAILSCALE_EXIT_NODE="$TAILSCALE_EXIT_NODE" \
+  --env ELASTIC_OTLP_ENDPOINT="$ELASTIC_OTLP_ENDPOINT" \
+  -s TAILSCALE_AUTHKEY \
+  -s TICKETMASTER_API_KEY \
+  -s TELEGRAM_BOT_TOKEN \
+  -s ELASTIC_API_KEY \
+  ghcr.io/michalmarczuk/event-agent-tests:latest \
+  /app/scripts/run_hf_smoke.sh
+```
+
+Publish the same four live checks as a separate Qase run by adding the Qase
+token secret and selecting the dedicated entry point:
+
+```bash
+hf jobs run \
+  --name event-agent-live-smoke-qase \
+  --flavor cpu-basic \
+  --env TAILSCALE_EXIT_NODE="$TAILSCALE_EXIT_NODE" \
+  --env ELASTIC_OTLP_ENDPOINT="$ELASTIC_OTLP_ENDPOINT" \
+  -s TAILSCALE_AUTHKEY \
+  -s TICKETMASTER_API_KEY \
+  -s TELEGRAM_BOT_TOKEN \
+  -s ELASTIC_API_KEY \
+  -s QASE_API_TOKEN \
+  ghcr.io/michalmarczuk/event-agent-tests:latest \
+  /app/scripts/run_hf_qase_smoke.sh
+```
+
+`run_hf_smoke.sh` explicitly keeps Qase disabled. The dedicated Qase runner
+selects only `qase and smoke`, maps the token without printing it, and reuses
+the same Tailscale, SOCKS5, Xvfb, cleanup, and exit-code lifecycle. Supply every
+listed service setting and confirm `4 passed, 0 skipped`; missing service
+credentials can intentionally skip their corresponding smoke checks. Prefer
+an immutable `sha-<commit-sha>` image tag for repeatable diagnostics.
 
 Run it with runtime secrets and persistent history:
 

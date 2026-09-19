@@ -152,7 +152,7 @@ def test_qase_reporting_guard_rejects_an_unlinked_selected_test():
 
     assert result.returncode != 0
     assert "Qase reporting safety guard rejected 1 selected test" in output
-    assert "qase and not smoke" in output
+    assert "qase marker expression" in output
     assert _SECRET not in output
 
 
@@ -168,5 +168,22 @@ def test_qase_reporting_guard_allows_only_linked_offline_selection():
     assert result.returncode == 0, output
     assert "23/" in output or "23 tests collected" in output
     assert "tests/smoke/" not in output
+    assert "Qase reporting safety guard rejected" not in output
+    assert _SECRET not in output
+
+
+def test_qase_reporting_guard_allows_only_linked_smoke_selection():
+    result = _run_isolated_pytest(
+        "--collect-only",
+        "-q",
+        "--run-smoke",
+        "-m",
+        "qase and smoke",
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0, output
+    assert "4/" in output or "4 tests collected" in output
+    assert "tests/smoke/" in output
     assert "Qase reporting safety guard rejected" not in output
     assert _SECRET not in output
