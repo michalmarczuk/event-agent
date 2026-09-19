@@ -24,7 +24,8 @@ RUN python -m camoufox set official/stable/152.0.4-beta.30 \
 
 FROM runtime-base AS test-runtime
 
-RUN pip install --no-cache-dir pytest
+COPY requirements-test.txt .
+RUN pip install --no-cache-dir -r requirements-test.txt
 
 COPY src/ src/
 COPY data/ data/

@@ -7,16 +7,27 @@ Use Python 3.13 and a virtual environment:
 ```bash
 python3.13 -m venv .event-agent-venv
 source .event-agent-venv/bin/activate
-pip install -r requirements.txt
-pip install pytest
+pip install -r requirements-test.txt
 ```
 
-The offline unit suite needs neither application secrets nor a downloaded
-browser:
+The default offline pytest suite needs neither application secrets nor a
+downloaded browser:
 
 ```bash
 pytest -q
 ```
+
+Generate the same latest-only Allure report locally after installing the
+official Allure CLI:
+
+```bash
+pytest -q --alluredir=allure-results --clean-alluredir
+allure generate allure-results --clean -o allure-report
+```
+
+The dedicated GitHub Pages workflow publishes the latest offline report on
+pushes to `main` and manual dispatches. It does not retain Allure history or run
+the opt-in live smoke tests.
 
 For a live daily run, install the Camoufox browser payload and create local
 configuration from the sanitized template:

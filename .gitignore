@@ -3,4 +3,6 @@
 .DS_Store
 __pycache__/
 .pytest_cache/
+allure-results/
+allure-report/
 data/seen_events.json
