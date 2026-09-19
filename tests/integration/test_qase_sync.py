@@ -3,7 +3,7 @@ import json
 import pytest
 
 from scripts import sync_qase_cases as qase
-from tests.qase_sync_support import (
+from tests.support.qase_sync_support import (
     FakeSession,
     _list_response,
     _response,
@@ -327,4 +327,3 @@ def test_cli_update_diff_is_dry_run_only_and_redacts_raw_values(
         assert any(method == "PATCH" for method, _, _ in session.calls)
     assert token not in output.out + output.err
     assert "unmanaged_api_field" not in output.out
-

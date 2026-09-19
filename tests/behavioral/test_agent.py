@@ -6,7 +6,12 @@ import pytest
 
 import src.agent as agent
 from src.models import Admission, Event, EventDetails, Recommendation
-from tests.agent_support import TEST_SETTINGS, _final_response, _run_with_tool_results, _tool_response
+from tests.support.agent_support import (
+    TEST_SETTINGS,
+    _final_response,
+    _run_with_tool_results,
+    _tool_response,
+)
 
 
 def test_run_agent_hides_prices_from_model_and_preserves_source_admission():

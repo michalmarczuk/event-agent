@@ -7,7 +7,7 @@ import requests
 import src.agent as agent
 from src.config import SearchLocation
 from src.tools.ticketmaster import TicketmasterClient
-from tests.agent_support import _BASE_RECOMMENDATION, _tool_response
+from tests.support.agent_support import _BASE_RECOMMENDATION, _tool_response
 
 
 def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(

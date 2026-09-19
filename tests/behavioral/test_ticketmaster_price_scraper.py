@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from src.models import Admission
-from tests.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
+from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
 def test_scrape_extracts_two_prices_as_range():

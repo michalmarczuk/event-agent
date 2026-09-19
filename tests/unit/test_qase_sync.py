@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from scripts import sync_qase_cases as qase
-from tests.qase_sync_support import (
+from tests.support.qase_sync_support import (
     FakeSession,
     _list_response,
     _response,

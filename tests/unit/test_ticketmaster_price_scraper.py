@@ -4,7 +4,7 @@ from unittest.mock import call
 import pytest
 
 from src.models import Admission
-from tests.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
+from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
 def test_readiness_returns_immediately_when_price_is_visible():

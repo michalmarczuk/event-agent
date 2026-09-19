@@ -5,7 +5,7 @@ import pytest
 from src.models import Admission
 from src.tools import ticketmaster_price_scraper as scraper_module
 from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
-from tests.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
+from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
 @pytest.mark.parametrize(

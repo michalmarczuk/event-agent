@@ -1,7 +1,7 @@
 from src.models import Admission
 from src.telegram_formatter import format_telegram_message
 from src.ticketmaster_enrichment import enrich_ticketmaster_prices
-from tests.ticketmaster_enrichment_helpers import FakeScraper, recommendation
+from tests.support.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 
 
 def test_enrichment_output_is_rendered_in_telegram_message():

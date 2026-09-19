@@ -4,7 +4,7 @@ import pytest
 
 import src.agent as agent
 from src.models import Admission, Recommendation
-from tests.agent_support import _BASE_RECOMMENDATION
+from tests.support.agent_support import _BASE_RECOMMENDATION
 
 
 def test_parse_recommendations_returns_recommendation_model():

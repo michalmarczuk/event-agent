@@ -1,6 +1,6 @@
 from src.models import Admission
 from src.ticketmaster_enrichment import enrich_ticketmaster_prices
-from tests.ticketmaster_enrichment_helpers import FakeScraper, recommendation
+from tests.support.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 
 
 def test_enrichment_scrapes_only_final_ticketmaster_recommendations():
@@ -82,4 +82,3 @@ def test_enrichment_skips_malformed_url_and_continues():
     assert FakeScraper.instances[0].scraped_urls == [valid.url]
     assert malformed.admission == existing
     assert valid.admission == expected
-
