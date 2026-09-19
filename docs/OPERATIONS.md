@@ -17,6 +17,23 @@ downloaded browser:
 pytest -q
 ```
 
+Run only the offline tests linked to the Qase catalog without publishing:
+
+```bash
+pytest -m "qase and not smoke" -q
+```
+
+Publishing the 23 linked offline regression cases is an explicit operation:
+
+```bash
+scripts/run_qase_regression.sh
+```
+
+The runner requires `QASE_API_TOKEN` in the environment and maps it to the
+reporter's credential variable without printing it. Qase reporting remains off
+for normal pytest commands. The four linked live smoke cases are separate and
+are never selected by this offline reporting command.
+
 Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
 
