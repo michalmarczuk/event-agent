@@ -23,7 +23,7 @@ Run only the offline tests linked to the Qase catalog without publishing:
 pytest -m "qase and not smoke" -q
 ```
 
-Publishing the 23 linked offline regression cases is an explicit operation:
+Publish the 23 linked offline regression cases manually outside CI with:
 
 ```bash
 scripts/run_qase_regression.sh
@@ -33,6 +33,9 @@ The runner requires `QASE_API_TOKEN` in the environment and maps it to the
 reporter's credential variable without printing it. Qase reporting remains off
 for normal pytest commands. The four linked live smoke cases are separate and
 are never selected by this offline reporting command.
+
+On pushes to `main` and manual CI dispatches, the `qase-regression` job invokes
+the same wrapper automatically after the primary test gate passes.
 
 Offline regression and live smoke results are published as separate Qase runs.
 The case synchronizer manages catalog definitions only; it does not publish
@@ -46,9 +49,10 @@ pytest -q --alluredir=allure-results --clean-alluredir
 allure generate allure-results --clean -o allure-report
 ```
 
-The unified CI workflow runs the offline suite once and uses those results for
-both its quality gate and the latest-only GitHub Pages report. It does not
-retain Allure history or run the opt-in live smoke tests.
+The unified CI workflow runs the full offline suite once for its quality gate
+and latest-only GitHub Pages report. A separate job reruns only the 23 linked
+offline cases for Qase reporting. It does not retain Allure history or run the
+opt-in live smoke tests.
 
 For a live daily run, install the Camoufox browser payload and create local
 configuration from the sanitized template:
@@ -227,13 +231,16 @@ shows the pipeline as one workflow run with this dependency graph:
 tests + Allure results
 ├── build and publish production image (passing tests only)
 ├── build and publish test-runtime image (passing tests only)
+├── publish 23 linked offline results to Qase (passing tests only)
 └── generate Allure report -> deploy GitHub Pages (even after pytest failure)
 ```
 
 The tests job uploads `allure-results` before restoring pytest's exit code. A
 failed suite therefore skips both image builds, remains visible as a failed CI
-run, and still allows the report and Pages deployment to complete. Docker,
-Allure-generation, or Pages failures also leave the same CI run failed.
+run, skips Qase publication, and still allows the report and Pages deployment
+to complete. The Qase job uses the existing safe regression wrapper and only
+reports the 23 linked non-smoke tests. Docker, Qase, Allure-generation, or Pages
+failures also leave the same CI run failed.
 
 The two independently cleaned GHCR packages are:
 
@@ -245,11 +252,16 @@ ghcr.io/michalmarczuk/event-agent-tests:sha-<commit-sha>
 ```
 
 GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication and GitHub's Pages
-permissions for deployment. Application and Qase secrets are not provided to
-CI. Browser doubles keep the suite offline, Qase reporting remains off, and
-live smoke tests remain opt-in. The image build fetches and verifies the
-Camoufox payload, but a successful build still does not prove live Ticketmaster
+permissions for deployment. Application secrets are not provided to CI;
+`QASE_API_TOKEN` is exposed only to the Qase regression step. The primary suite
+keeps Qase reporting off, and browser doubles keep application dependencies
+offline. The Qase job contacts only Qase TestOps to publish its results; live
+smoke tests remain opt-in. The image build fetches and verifies the Camoufox
+payload, but a successful build still does not prove live Ticketmaster
 rendering or exit-node connectivity.
+
+Configure `QASE_API_TOKEN` as a GitHub Actions repository secret. It is not
+passed to either Docker build and is never included in an image.
 
 ## Hugging Face Jobs
 
@@ -488,8 +500,8 @@ Update the Hugging Face Job to the desired tag, normally `latest` for the curren
 
 ## Deployment Responsibility
 
-- GitHub Actions: offline tests, latest-only Allure Pages publication, and
-  Docker image builds.
+- GitHub Actions: offline tests, automated offline Qase reporting, latest-only
+  Allure Pages publication, and Docker image builds.
 - GHCR: Docker image registry.
 - Hugging Face Jobs: production runtime and scheduler.
 - Hugging Face Storage Bucket: persistent event history.

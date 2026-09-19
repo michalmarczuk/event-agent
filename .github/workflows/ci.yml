@@ -130,6 +130,30 @@ jobs:
           package-type: container
           min-versions-to-keep: 5
 
+  qase-regression:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Publish offline regression to Qase
+        env:
+          QASE_API_TOKEN: ${{ secrets.QASE_API_TOKEN }}
+        run: ./scripts/run_qase_regression.sh
+
   allure-report:
     needs: tests
     if: ${{ always() && !cancelled() }}
