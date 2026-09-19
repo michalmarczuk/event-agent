@@ -71,6 +71,20 @@ suites:
           - action: Inspect application logs and formatted exceptions.
             expected: The Ticketmaster API key is absent.
 
+      - title: Ticketmaster Discovery API is reachable with valid credentials
+        description: >-
+          This live smoke check verifies authenticated connectivity to the
+          Ticketmaster Discovery API without depending on a fixed event.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and TICKETMASTER_API_KEY is configured.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute the live Ticketmaster discovery smoke request.
+            expected: The authenticated Discovery API request completes successfully.
+          - action: Inspect the returned application-domain result.
+            expected: A valid Event list is returned without requiring a specific event name or ID.
+
   - name: Agent Grounding & Selection
     cases:
       - title: Recommendations require successfully grounded event IDs
@@ -302,6 +316,20 @@ suites:
           - action: Inspect the exception, traceback, and application logs.
             expected: The Telegram bot token and credentialed URL are absent.
 
+      - title: Telegram bot authentication succeeds without sending a message
+        description: >-
+          This live smoke check validates Telegram bot credentials through getMe
+          without invoking message delivery.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and TELEGRAM_BOT_TOKEN is configured.
+        priority: high
+        automated: true
+        steps:
+          - action: Call the live Telegram Bot API getMe method with the configured token.
+            expected: Telegram returns HTTP/API success and a valid bot identity.
+          - action: Complete the smoke check without invoking sendMessage.
+            expected: No Telegram message is sent and no application state is changed.
+
   - name: Observability & Runtime
     cases:
       - title: ECS stdout logs include stable service and pipeline diagnostics
@@ -371,3 +399,34 @@ suites:
             expected: Camoufox receives proxy options only for the configured run.
           - action: Exit the scraper lifecycle.
             expected: Browser and Playwright resources are closed exactly once.
+
+      - title: Camoufox can reach Ticketmaster through the configured browser network path
+        description: >-
+          This live smoke check validates real headed Camoufox startup and
+          Ticketmaster page connectivity over direct networking or SCRAPER_PROXY_URL.
+          It does not invoke or validate ticket-price extraction.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and the Camoufox browser payload is installed.
+        priority: high
+        automated: true
+        steps:
+          - action: Start Camoufox with the production browser settings and optional configured proxy.
+            expected: The browser and context start successfully.
+          - action: Navigate to the public Ticketmaster Poland home page.
+            expected: Navigation reaches a successful Ticketmaster URL with non-empty branded page content.
+          - action: Complete the smoke check and close browser resources.
+            expected: Page, context, browser, and Playwright resources are closed reliably.
+
+      - title: Elastic OTLP endpoint accepts an event-agent log record
+        description: >-
+          This live smoke check validates direct OTLP/HTTP log ingestion
+          connectivity without asserting downstream indexing or dashboard visibility.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and ELASTIC_OTLP_ENDPOINT and ELASTIC_API_KEY are configured.
+        priority: medium
+        automated: true
+        steps:
+          - action: Send one minimal event-agent OTLP JSON log record to the normalized logs endpoint.
+            expected: Elastic accepts the authenticated request with a successful 2xx response.
+          - action: Inspect the record submitted by the smoke check.
+            expected: It contains smoke service metadata, success event fields, a current timestamp, and the expected message body.
