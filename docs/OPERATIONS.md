@@ -46,9 +46,9 @@ pytest -q --alluredir=allure-results --clean-alluredir
 allure generate allure-results --clean -o allure-report
 ```
 
-The dedicated GitHub Pages workflow publishes the latest offline report on
-pushes to `main` and manual dispatches. It does not retain Allure history or run
-the opt-in live smoke tests.
+The unified CI workflow runs the offline suite once and uses those results for
+both its quality gate and the latest-only GitHub Pages report. It does not
+retain Allure history or run the opt-in live smoke tests.
 
 For a live daily run, install the Camoufox browser payload and create local
 configuration from the sanitized template:
@@ -218,26 +218,38 @@ The Docker image contains no secrets. Credentials are injected at runtime with
 
 Mount `/app/data` to persistent storage. Without that mount, `seen_events.json` is lost when the container is removed and events may be delivered again on a later run.
 
-## GitHub Actions and GHCR
+## GitHub Actions, Allure, and GHCR
 
-The build workflow runs on pushes to `main` and on manual dispatch. It installs dependencies, runs pytest, builds the Docker image, and pushes it to:
-
-```text
-ghcr.io/michalmarczuk/event-agent
-```
-
-Published tags are:
+One `CI` workflow runs on pushes to `main` and on manual dispatch, so GitHub
+shows the pipeline as one workflow run with this dependency graph:
 
 ```text
-latest
-sha-<commit-sha>
+tests + Allure results
+├── build and publish production image (passing tests only)
+├── build and publish test-runtime image (passing tests only)
+└── generate Allure report -> deploy GitHub Pages (even after pytest failure)
 ```
 
-GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication. Application secrets are not needed to build or test the image.
+The tests job uploads `allure-results` before restoring pytest's exit code. A
+failed suite therefore skips both image builds, remains visible as a failed CI
+run, and still allows the report and Pages deployment to complete. Docker,
+Allure-generation, or Pages failures also leave the same CI run failed.
 
-CI uses browser doubles in the offline unit suite. The image build fetches and
-verifies the Camoufox payload, but a successful build still does not prove live
-Ticketmaster rendering or exit-node connectivity.
+The two independently cleaned GHCR packages are:
+
+```text
+ghcr.io/michalmarczuk/event-agent:latest
+ghcr.io/michalmarczuk/event-agent:sha-<commit-sha>
+ghcr.io/michalmarczuk/event-agent-tests:latest
+ghcr.io/michalmarczuk/event-agent-tests:sha-<commit-sha>
+```
+
+GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication and GitHub's Pages
+permissions for deployment. Application and Qase secrets are not provided to
+CI. Browser doubles keep the suite offline, Qase reporting remains off, and
+live smoke tests remain opt-in. The image build fetches and verifies the
+Camoufox payload, but a successful build still does not prove live Ticketmaster
+rendering or exit-node connectivity.
 
 ## Hugging Face Jobs
 
@@ -359,7 +371,7 @@ events can be retried.
 
 ### Missing runtime secrets
 
-The build workflow does not need application secrets. Verify
+The unified CI workflow does not need application secrets. Verify
 `OPENAI_API_KEY`, `TICKETMASTER_API_KEY`, `TELEGRAM_BOT_TOKEN`,
 `TELEGRAM_CHAT_ID`, and `TAILSCALE_AUTHKEY` are present in the shell invoking
 the Hugging Face CLI. `MODEL` and `TAILSCALE_EXIT_NODE` must also be supplied as
@@ -462,18 +474,22 @@ Run that command only inside a job with the production bucket mounted.
 
 ### Rebuild and publish after code changes
 
-Push changes to `main` or manually dispatch the build workflow. It runs tests, builds the image, and publishes both tags:
+Push changes to `main` or manually dispatch the CI workflow. Passing tests
+build and publish both image packages:
 
 ```text
 ghcr.io/michalmarczuk/event-agent:latest
 ghcr.io/michalmarczuk/event-agent:sha-<commit-sha>
+ghcr.io/michalmarczuk/event-agent-tests:latest
+ghcr.io/michalmarczuk/event-agent-tests:sha-<commit-sha>
 ```
 
 Update the Hugging Face Job to the desired tag, normally `latest` for the current production image or a SHA tag for a reproducible deployment.
 
 ## Deployment Responsibility
 
-- GitHub Actions: CI tests and Docker image builds.
+- GitHub Actions: offline tests, latest-only Allure Pages publication, and
+  Docker image builds.
 - GHCR: Docker image registry.
 - Hugging Face Jobs: production runtime and scheduler.
 - Hugging Face Storage Bucket: persistent event history.
