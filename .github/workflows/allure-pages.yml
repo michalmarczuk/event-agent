@@ -1,9 +1,11 @@
 name: Publish Allure Report
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Build and Push Docker Image
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -23,10 +25,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       report_ready: ${{ steps.report_ready.outputs.ready }}
+      pytest_exit_code: ${{ steps.pytest.outputs.exit_code }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         id: python
@@ -39,17 +44,21 @@ jobs:
 
       - name: Run offline tests with Allure
         id: pytest
-        continue-on-error: true
         run: |
+          set +e
           pytest -q \
             --alluredir=allure-results \
             --clean-alluredir
+          pytest_exit_code=$?
+          set -e
+          echo "exit_code=${pytest_exit_code}" >> "${GITHUB_OUTPUT}"
 
       - name: Add Allure environment metadata
         env:
           PYTHON_VERSION: ${{ steps.python.outputs.python-version }}
-          BRANCH_NAME: ${{ github.ref_name }}
-          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+          COMMIT_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          UPSTREAM_WORKFLOW_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || 'not_applicable' }}
         run: |
           mkdir -p allure-results
           short_sha="${COMMIT_SHA:0:7}"
@@ -59,6 +68,7 @@ jobs:
             echo "Python=${PYTHON_VERSION}"
             echo "Branch=${BRANCH_NAME}"
             echo "Commit=${short_sha}"
+            echo "UpstreamWorkflowConclusion=${UPSTREAM_WORKFLOW_CONCLUSION}"
           } > allure-results/environment.properties
 
       - name: Set up Java
@@ -96,12 +106,6 @@ jobs:
         id: report_ready
         run: echo "ready=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Preserve pytest failure
-        if: ${{ steps.pytest.outcome == 'failure' }}
-        run: |
-          echo "::error::pytest failed; the Allure report was still generated and uploaded."
-          exit 1
-
   deploy:
     needs: test-report
     if: ${{ always() && !cancelled() && needs['test-report'].outputs.report_ready == 'true' }}
@@ -114,3 +118,21 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  test-result:
+    needs:
+      - test-report
+      - deploy
+    if: ${{ always() && needs['test-report'].outputs.report_ready == 'true' && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Restore pytest result after Pages deployment
+        env:
+          PYTEST_EXIT_CODE: ${{ needs['test-report'].outputs.pytest_exit_code }}
+        run: |
+          if [ "${PYTEST_EXIT_CODE}" -ne 0 ]; then
+            echo "::error::pytest exited with code ${PYTEST_EXIT_CODE}; the Allure report was generated and deployed before restoring the failure."
+            exit 1
+          fi
+          echo "pytest passed; the Allure report was generated and deployed."
