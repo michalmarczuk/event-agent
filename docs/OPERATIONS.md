@@ -120,10 +120,10 @@ Ticketmaster API connectivity, Telegram bot authentication without sending a
 message, Camoufox browser connectivity, and Elastic OTLP ingestion. It does not
 run the daily agent pipeline or modify event history.
 
-The current GitHub Actions workflow continues to publish only the default
-`production` target. Before running this diagnostic on Hugging Face, publish
-`test-runtime` under a separate smoke-specific image tag; do not replace the
-production `latest` or `sha-*` tags with the test image.
+GitHub Actions publishes `production` to `ghcr.io/michalmarczuk/event-agent`
+and `test-runtime` separately to
+`ghcr.io/michalmarczuk/event-agent-smoke`. Use the smoke package for the
+Hugging Face diagnostic job; it does not replace the production tags.
 
 Run it with runtime secrets and persistent history:
 
