@@ -20,6 +20,57 @@ suites:
           - action: Inspect structured logs.
             expected: event.action=ticketmaster_event_filter and event.reason=canceled.
 
+      - title: Non-canceled Ticketmaster statuses remain eligible
+        description: >-
+          Status filtering must preserve active and changed events while dropping
+          only events explicitly marked canceled.
+        preconditions: >-
+          Ticketmaster returns events marked onsale, offsale, postponed, or rescheduled.
+        priority: medium
+        automated: true
+        steps:
+          - action: Execute discovery separately for each supported non-canceled status.
+            expected: The Ticketmaster response is processed successfully.
+          - action: Apply event eligibility filtering.
+            expected: Onsale, offsale, postponed, and rescheduled events remain eligible.
+
+      - title: Pagination reaches eligible unseen events within safety bounds
+        description: >-
+          Discovery must continue past seen or ineligible results while limiting
+          both model-visible candidates and Ticketmaster API requests.
+        preconditions: >-
+          Ticketmaster provides paginated responses containing a mixture of seen,
+          canceled, and eligible unseen events.
+        priority: medium
+        automated: true
+        steps:
+          - action: Return only previously seen events on the first API page and unseen events on the next page.
+            expected: Discovery fetches the later page and returns its eligible unseen events.
+          - action: Include canceled events before the ten-event target is reached.
+            expected: Canceled events do not count toward the target and pagination continues.
+          - action: Provide ten eligible unseen events on the first page.
+            expected: Discovery stops without requesting another page.
+          - action: Exhaust Ticketmaster page metadata before ten eligible events are found.
+            expected: Discovery stops at the reported final page.
+          - action: Report additional pages beyond the configured safety boundary.
+            expected: At most five API pages and ten model-visible events are processed.
+
+      - title: Ticketmaster discovery failures are credential-safe
+        description: >-
+          Ticketmaster request failures remain useful to the agent without
+          exposing the provider API key in exceptions, logs, or tool output.
+        preconditions: >-
+          Ticketmaster returns an HTTP failure whose request URL contains the API key.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute Ticketmaster discovery and return an HTTP error.
+            expected: The provider raises a concise status-based error without chaining credential-bearing request details.
+          - action: Pass the provider failure through the agent tool loop.
+            expected: The model receives a recoverable credential-free tool error.
+          - action: Inspect application logs and formatted exceptions.
+            expected: The Ticketmaster API key is absent.
+
   - name: Agent Grounding & Selection
     cases:
       - title: Recommendations require successfully grounded event IDs
@@ -139,3 +190,184 @@ suites:
             expected: Enrichment does not fail the batch.
           - action: Process a subsequent recommendation with a successful scrape.
             expected: Its scraped Admission is applied.
+
+      - title: Visible PLN prices are extracted deterministically
+        description: >-
+          Visible provider prices are converted into a deterministic PLN
+          Admission without requiring a specific ticket-section heading.
+        preconditions: >-
+          A Ticketmaster event page exposes one or more supported visible PLN prices.
+        priority: high
+        automated: true
+        steps:
+          - action: Load an event page with visible fixed or ranged PLN prices.
+            expected: All supported visible prices are extracted from the rendered page.
+          - action: Repeat with Polish ticket text or without a known ticket-section marker.
+            expected: Price extraction remains available independently of the heading variant.
+          - action: Inspect the returned Admission.
+            expected: Currency is PLN and minimum and maximum values reflect the provider prices.
+
+      - title: Localized consent handling is selective and non-fatal
+        description: >-
+          Polish and English consent controls are handled without making the
+          privacy modal a hard dependency for price extraction.
+        preconditions: >-
+          Ticketmaster may render a localized consent dialog before the ticket UI.
+        priority: medium
+        automated: true
+        steps:
+          - action: Render a visible English or Polish consent acceptance control.
+            expected: The accept control is clicked and extraction continues; reject-all is never selected.
+          - action: Omit the consent dialog or make its accept click fail.
+            expected: The scraper continues through its existing non-fatal extraction path.
+
+      - title: Bounded readiness reaches localized best-available prices
+        description: >-
+          Readiness waits for actionable ticket content and supports Polish and
+          English best-available controls without accepting accessibility-only markers.
+        preconditions: >-
+          Ticketmaster initially renders no price and later exposes an interactive ticket-selection control.
+        priority: medium
+        automated: true
+        steps:
+          - action: Render only an accessibility skip-to-tickets marker before the interactive ticket UI.
+            expected: The marker alone does not complete readiness and polling continues within its bound.
+          - action: Later render the English or Polish best-available control.
+            expected: Readiness completes when the actionable control becomes visible.
+          - action: Click the localized control and reveal a provider price.
+            expected: The post-click PLN price is extracted into Admission.
+
+      - title: Unavailable or blocked pages never imply free admission
+        description: >-
+          Pages without extractable provider pricing return pricing unavailable
+          rather than creating a free Admission or failing the wider batch.
+        preconditions: >-
+          The event page is blocked, navigation fails, controls are unavailable,
+          or a best-available interaction reveals no price.
+        priority: high
+        automated: true
+        steps:
+          - action: Scrape a verification page or a page with no price and no actionable control.
+            expected: The scraper returns no Admission.
+          - action: Fail navigation or the best-available click.
+            expected: The scraper reports pricing unavailable without raising to the batch.
+          - action: Complete a best-available click that reveals no price.
+            expected: The result remains unavailable and is never interpreted as free admission.
+
+  - name: Delivery & Persistence
+    cases:
+      - title: Enriched provider prices are rendered in Telegram output
+        description: >-
+          Deterministic Admission produced after recommendation selection is the
+          price source used by the Telegram formatter.
+        preconditions: >-
+          A final Ticketmaster recommendation is enriched with a visible provider price range.
+        priority: high
+        automated: true
+        steps:
+          - action: Enrich the selected recommendation with a Ticketmaster Admission.
+            expected: The deterministic Recommendation contains the scraped provider price range.
+          - action: Format the enriched recommendation for Telegram.
+            expected: The Telegram message displays the same PLN range in the expected localized format.
+
+      - title: History is persisted only after successful Telegram delivery
+        description: >-
+          The daily pipeline persists only selected recommendation IDs and only
+          after Telegram accepts the formatted report.
+        preconditions: >-
+          History contains prior IDs and the agent returns a defined set of final recommendations.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the successful daily pipeline through agent selection, enrichment, formatting, and delivery.
+            expected: Telegram delivery occurs before history persistence.
+          - action: Inspect the IDs written after delivery.
+            expected: Prior history is combined only with final recommended event IDs.
+          - action: Make Telegram delivery fail.
+            expected: No history is written and no successful daily-run summary is emitted.
+          - action: Make history persistence fail after successful delivery.
+            expected: The persistence error remains visible and the run is not logged as successful.
+
+      - title: Telegram delivery failures never expose bot credentials
+        description: >-
+          Telegram transport failures preserve failure semantics while removing
+          the bot token from logs and exception output.
+        preconditions: >-
+          The Telegram HTTP client fails with an error containing the credentialed Bot API URL.
+        priority: high
+        automated: true
+        steps:
+          - action: Attempt to deliver a Telegram report and raise a credential-bearing transport error.
+            expected: Delivery raises the existing concise application error.
+          - action: Inspect the exception, traceback, and application logs.
+            expected: The Telegram bot token and credentialed URL are absent.
+
+  - name: Observability & Runtime
+    cases:
+      - title: ECS stdout logs include stable service and pipeline diagnostics
+        description: >-
+          Application logs remain one-line ECS JSON and expose structured fields
+          for the discovery, scraping, and successful daily-run stages.
+        preconditions: >-
+          Elastic export is disabled and application stages execute with controlled results.
+        priority: medium
+        automated: true
+        steps:
+          - action: Configure logging and emit a record with structured extras.
+            expected: Stdout contains valid ECS JSON with event fields and stable event-agent production service metadata.
+          - action: Configure logging a second time and emit one record.
+            expected: Exactly one stdout record is produced.
+          - action: Complete Ticketmaster discovery, a price scrape, and a successful daily run.
+            expected: Search counters, scrape outcome fields, and daily duration/event counters are emitted as structured diagnostics.
+          - action: Inspect price-scrape logging output.
+            expected: Diagnostic fields are present without rendered page body text.
+
+      - title: Optional OTLP log export is idempotent and flushed at shutdown
+        description: >-
+          Complete Elastic configuration adds one OTLP pipeline, preserves
+          structured attributes, and flushes the short-lived job exactly once.
+        preconditions: >-
+          Both the Elastic Managed OTLP endpoint and API key are configured and the exporter is mocked.
+        priority: medium
+        automated: true
+        steps:
+          - action: Configure application logging twice with complete Elastic settings.
+            expected: One ECS handler, one OTLP handler, and one exporter pipeline exist.
+          - action: Emit a structured price-scrape record.
+            expected: Its event and scraper extras are exported as OpenTelemetry log attributes.
+          - action: Shut down logging twice.
+            expected: The provider flushes, shuts down, and removes its handler exactly once.
+
+      - title: Telemetry failures are non-fatal and credential-safe
+        description: >-
+          Optional telemetry configuration and export failures cannot alter the
+          daily delivery pipeline or expose the Elastic API key.
+        preconditions: >-
+          Elastic settings are incomplete, exporter setup fails, or summary logging raises.
+        priority: high
+        automated: true
+        steps:
+          - action: Configure only one required Elastic setting.
+            expected: OTLP export remains disabled and a concise credential-free warning is emitted.
+          - action: Fail OTLP exporter setup with an error containing the API key.
+            expected: ECS stdout remains available and neither the key nor authorization data is logged.
+          - action: Raise while emitting the final daily summary after successful delivery and persistence.
+            expected: The logging failure does not fail delivery, persistence, or logging cleanup.
+
+      - title: Camoufox batch lifecycle reuses resources and honors optional proxy
+        description: >-
+          Price enrichment owns one Camoufox browser and context per batch while
+          cleaning up every page and applying proxy configuration only when supplied.
+        preconditions: >-
+          A batch contains multiple final Ticketmaster recommendations and Camoufox is mocked.
+        priority: medium
+        automated: true
+        steps:
+          - action: Enrich multiple Ticketmaster recommendations in one batch.
+            expected: One scraper, browser, and context are reused while a separate page is created per event.
+          - action: Complete or fail individual page scraping.
+            expected: Each page is closed without preventing later batch items from running.
+          - action: Run once without SCRAPER_PROXY_URL and once with the local SOCKS5 URL.
+            expected: Camoufox receives proxy options only for the configured run.
+          - action: Exit the scraper lifecycle.
+            expected: Browser and Playwright resources are closed exactly once.
