@@ -8,5 +8,4 @@ __pycache__/
 .git/
 .github/
 .vscode/
-tests/
 data/seen_events.json

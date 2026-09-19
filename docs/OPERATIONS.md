@@ -88,16 +88,42 @@ exported by the Python logging configuration.
 
 ## Docker
 
-The image installs the Camoufox browser payload and its Linux dependencies,
-Tailscale binaries, Xvfb, and tini. It does not install a separate Playwright
-Chromium browser payload. Playwright remains a Python dependency because
+The Dockerfile has two final runtime targets built from the same base. Both
+include the pinned Camoufox browser payload and its Linux dependencies,
+Tailscale binaries, Xvfb, and tini. Neither installs a separate Playwright
+Chromium browser payload; Playwright remains a Python dependency because
 Camoufox uses its API.
+
+- `production` is the default and final target. It contains application runtime
+  files but does not copy `tests/` or install pytest.
+- `test-runtime` additionally installs pytest and copies `tests/`, `pytest.ini`,
+  and the repository scripts required by live smoke checks.
 
 Build the image locally:
 
 ```bash
 docker build -t event-agent:local .
 ```
+
+Build the separate smoke-test runtime when preparing an opt-in Hugging Face
+diagnostic job:
+
+```bash
+docker build --target test-runtime -t event-agent:test-runtime .
+```
+
+Its default command is `/app/scripts/run_hf_smoke.sh`. The wrapper establishes
+the same Tailscale userspace SOCKS5 route as production, exports
+`SCRAPER_PROXY_URL`, runs `pytest --run-smoke -m smoke -q` through Xvfb, and
+then cleans up `tailscaled`. It returns pytest's exit code. The smoke job checks
+Ticketmaster API connectivity, Telegram bot authentication without sending a
+message, Camoufox browser connectivity, and Elastic OTLP ingestion. It does not
+run the daily agent pipeline or modify event history.
+
+The current GitHub Actions workflow continues to publish only the default
+`production` target. Before running this diagnostic on Hugging Face, publish
+`test-runtime` under a separate smoke-specific image tag; do not replace the
+production `latest` or `sha-*` tags with the test image.
 
 Run it with runtime secrets and persistent history:
 
