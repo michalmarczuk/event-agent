@@ -2,210 +2,9 @@ import logging
 from unittest.mock import MagicMock, call
 
 import pytest
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.models import Admission
-from src.tools import ticketmaster_price_scraper as scraper_module
-from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
-
-_EVENT_URL = "https://example.test/event"
-
-
-class FakeLocator:
-    def __init__(
-        self,
-        text="",
-        click=None,
-        count=1,
-        parent=None,
-        attributes=None,
-    ):
-        self.text = text
-        self.click_callback = click
-        self.item_count = count
-        self.parent = parent
-        self.attributes = attributes or {}
-        self.click_count = 0
-
-    @property
-    def first(self):
-        return self
-
-    def click(self, **kwargs):
-        self.click_count += 1
-        if self.click_callback:
-            self.click_callback()
-
-    def count(self):
-        return self.item_count
-
-    def inner_text(self, **kwargs):
-        return self.text
-
-    def is_visible(self):
-        return True
-
-    def wait_for(self, **kwargs):
-        if not self.item_count:
-            raise PlaywrightTimeoutError("locator is not visible")
-
-    def locator(self, *args, **kwargs):
-        return self.parent or self
-
-    def get_attribute(self, name):
-        return self.attributes.get(name)
-
-
-def scraper_for(
-    body_text,
-    after_click=None,
-    *,
-    section_marker="Search For Tickets",
-    section_marker_role="heading",
-    best_control_text=None,
-    consent_text=None,
-    after_consent=None,
-    consent_click_error=None,
-    page_language=None,
-):
-    page = MagicMock()
-    body = FakeLocator(body_text)
-
-    def click_best_available():
-        if after_click is not None:
-            body.text = after_click
-
-    def click_consent():
-        if consent_click_error is not None:
-            raise consent_click_error
-        if after_consent is not None:
-            body.text = after_consent
-        consent_control.item_count = 0
-
-    heading = FakeLocator(
-        text=section_marker or "",
-        count=int(section_marker is not None),
-        parent=body,
-    )
-    best_control = FakeLocator(
-        text=best_control_text or "",
-        click=click_best_available,
-        count=int(best_control_text is not None),
-    )
-    consent_control = FakeLocator(
-        text=consent_text or "",
-        click=click_consent,
-        count=int(consent_text is not None),
-    )
-    missing = FakeLocator(count=0)
-
-    def matches(pattern, text):
-        return bool(text and pattern.search(text))
-
-    def get_by_role(role, name):
-        if role == "button" and matches(name, consent_text):
-            return consent_control
-        if role == section_marker_role and matches(name, section_marker):
-            return heading
-        if role in ("button", "tab") and matches(name, best_control_text):
-            return best_control
-        return missing
-
-    def get_by_text(name):
-        if matches(name, section_marker):
-            return heading
-        if matches(name, best_control_text):
-            return best_control
-        return missing
-
-    def locator(selector):
-        if selector == "body":
-            return body
-        if selector == "html":
-            return FakeLocator(attributes={"lang": page_language})
-        return missing
-
-    page.get_by_role.side_effect = get_by_role
-    page.get_by_text.side_effect = get_by_text
-    page.locator.side_effect = locator
-    page.consent_control = consent_control
-    browser = MagicMock()
-    browser.new_context.return_value.new_page.return_value = page
-    return TicketmasterPriceScraper(browser=browser), page, best_control
-
-
-@pytest.mark.parametrize(
-    ("proxy_url", "proxy_options"),
-    [
-        (None, {}),
-        (
-            "socks5://127.0.0.1:1055",
-            {"proxy": {"server": "socks5://127.0.0.1:1055"}},
-        ),
-    ],
-)
-def test_camoufox_browser_uses_optional_proxy_and_is_reused_and_closed(
-    monkeypatch,
-    proxy_url,
-    proxy_options,
-):
-    pages = [
-        scraper_for("Search For Tickets\nNormal ticket PLN 49")[1]
-        for _ in range(2)
-    ]
-    local_browser = MagicMock()
-    local_context = MagicMock()
-    local_context.new_page.side_effect = pages
-    local_browser.new_context.return_value = local_context
-    playwright = MagicMock()
-    playwright_manager = MagicMock()
-    playwright_manager.start.return_value = playwright
-    sync_playwright = MagicMock(return_value=playwright_manager)
-    new_browser = MagicMock(return_value=local_browser)
-    monkeypatch.setattr(
-        scraper_module,
-        "sync_playwright",
-        sync_playwright,
-    )
-    monkeypatch.setattr(
-        scraper_module,
-        "NewBrowser",
-        new_browser,
-    )
-    monkeypatch.setattr(
-        scraper_module,
-        "load_scraper_proxy_url",
-        lambda: proxy_url,
-    )
-    with TicketmasterPriceScraper() as scraper:
-        for suffix in ("1", "2"):
-            assert scraper.scrape(f"{_EVENT_URL}-{suffix}") == Admission(
-                False, 49, 49, "PLN"
-            )
-
-    new_browser.assert_called_once_with(
-        playwright,
-        headless=False,
-        locale="pl-PL",
-        os="macos",
-        **proxy_options,
-    )
-    sync_playwright.assert_called_once_with()
-    playwright_manager.start.assert_called_once_with()
-    local_browser.new_context.assert_called_once_with(
-        locale="pl-PL",
-        timezone_id="Europe/Warsaw",
-        viewport={"width": 1440, "height": 900},
-    )
-    assert local_context.new_page.call_count == len(pages)
-    for page in pages:
-        page.goto.assert_called_once()
-        page.wait_for_timeout.assert_not_called()
-        call_names = [record[0] for record in page.mock_calls]
-        assert call_names.index("goto") < call_names.index("locator")
-        page.close.assert_called_once_with()
-    local_browser.close.assert_called_once_with()
-    playwright.stop.assert_called_once_with()
+from tests.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
 def test_scrape_extracts_two_prices_as_range():
@@ -215,31 +14,6 @@ def test_scrape_extracts_two_prices_as_range():
     )
 
     assert scraper.scrape(_EVENT_URL) == Admission(False, 37.10, 63.60, "PLN")
-
-
-def test_readiness_returns_immediately_when_price_is_visible():
-    scraper, page, _ = scraper_for(
-        "Ticketmaster event details\nNormal ticket PLN 49",
-        section_marker=None,
-    )
-
-    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
-    page.wait_for_timeout.assert_not_called()
-
-
-def test_readiness_polls_until_ticket_content_is_available():
-    scraper, page, _ = scraper_for("Loading", section_marker=None)
-    body = page.locator("body")
-    rendered_text = "Ticketmaster event details\nNormal ticket PLN 49"
-
-    def render_after_two_poll_intervals(timeout):
-        if page.wait_for_timeout.call_count == 2:
-            body.text = rendered_text
-
-    page.wait_for_timeout.side_effect = render_after_two_poll_intervals
-
-    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
-    assert page.wait_for_timeout.call_args_list == [call(500), call(500)]
 
 
 def test_readiness_ignores_skip_link_until_best_available_is_visible():
@@ -272,50 +46,6 @@ def test_readiness_ignores_skip_link_until_best_available_is_visible():
         call(1_000),
     ]
     assert best_control.click_count == 1
-
-
-@pytest.mark.parametrize(
-    ("body_text", "section_marker", "section_marker_role"),
-    [
-        (
-            "Ticketmaster page is still loading without ticket information",
-            None,
-            "heading",
-        ),
-        (
-            "Pomiń, aby wyszukać bilety\nŁadowanie strony wydarzenia",
-            "Pomiń, aby wyszukać bilety",
-            "link",
-        ),
-        (
-            "Skip to Search For Tickets\nEvent page still loading",
-            "Skip to Search For Tickets",
-            "link",
-        ),
-    ],
-)
-def test_readiness_timeout_falls_through_without_raising(
-    body_text,
-    section_marker,
-    section_marker_role,
-    caplog,
-):
-    scraper, page, _ = scraper_for(
-        body_text,
-        section_marker=section_marker,
-        section_marker_role=section_marker_role,
-    )
-
-    with caplog.at_level(logging.WARNING):
-        assert scraper.scrape(_EVENT_URL) is None
-
-    assert page.wait_for_timeout.call_args_list == [call(500)] * 40
-    failure_record = next(
-        record
-        for record in caplog.records
-        if record.__dict__.get("event.outcome") == "failure"
-    )
-    assert failure_record.__dict__["event.reason"] == "page_not_ready"
 
 
 @pytest.mark.parametrize(
@@ -404,17 +134,6 @@ def test_scrape_returns_none_for_verification_page():
     assert scraper.scrape(_EVENT_URL) is None
 
 
-def test_scrape_ignores_malformed_price_text():
-    scraper, _, _ = scraper_for(
-        "Search For Tickets\nNormal ticket PLN unavailable\n"
-        "Discount ticket PLN 37.10 each"
-    )
-
-    assert scraper.scrape(_EVENT_URL) == Admission(
-        False, 37.10, 37.10, "PLN"
-    )
-
-
 def test_scrape_returns_none_and_logs_when_navigation_fails(caplog):
     scraper, page, _ = scraper_for("Search For Tickets")
     page.goto.side_effect = RuntimeError("navigation failed")
@@ -439,22 +158,6 @@ def test_scrape_extracts_prices_without_known_ticket_section_marker():
 
     assert scraper.scrape(_EVENT_URL) == Admission(
         False, 37.10, 63.60, "PLN"
-    )
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("PLN 63.60", 63.60),
-        ("63,60 zł", 63.60),
-        ("63 zł", 63.0),
-    ],
-)
-def test_scrape_accepts_common_polish_price_formats(text, expected):
-    scraper, _, _ = scraper_for(f"Search For Tickets\n{text}")
-
-    assert scraper.scrape(_EVENT_URL) == Admission(
-        False, expected, expected, "PLN"
     )
 
 
