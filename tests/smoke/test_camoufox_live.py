@@ -2,6 +2,9 @@
 
 from urllib.parse import urlparse
 
+import pytest
+from qase.pytest import qase
+
 from src.config import load_scraper_proxy_url
 
 
@@ -56,6 +59,8 @@ def _open_ticketmaster(proxy_url: str | None) -> tuple[int | None, str, str]:
             browser.close()
 
 
+@qase.id(26)
+@pytest.mark.qase
 def test_camoufox_reaches_ticketmaster() -> None:
     """Verify headed Camoufox connectivity without requiring event pricing."""
     proxy_url = load_scraper_proxy_url()

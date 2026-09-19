@@ -2,6 +2,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from qase.pytest import qase
 import requests
 
 import src.agent as agent
@@ -10,6 +11,8 @@ from src.tools.ticketmaster import TicketmasterClient
 from tests.support.agent_support import _BASE_RECOMMENDATION, _tool_response
 
 
+@qase.id(12)
+@pytest.mark.qase
 def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
     caplog,
 ):

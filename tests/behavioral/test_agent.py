@@ -3,6 +3,7 @@ from dataclasses import asdict
 from unittest.mock import patch
 
 import pytest
+from qase.pytest import qase
 
 import src.agent as agent
 from src.models import Admission, Event, EventDetails, Recommendation
@@ -14,6 +15,8 @@ from tests.support.agent_support import (
 )
 
 
+@qase.id(4)
+@pytest.mark.qase
 def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     admission = Admission(
         False,
@@ -99,6 +102,8 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     assert result.recommended_event_ids == set()
 
 
+@qase.id(6)
+@pytest.mark.qase
 def test_model_visible_search_caps_oversized_tool_result_after_filtering():
     tool_call = _tool_response(
         "response-1", "search_events", "call-1", days_ahead=30
@@ -125,6 +130,8 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
     }
 
 
+@qase.id(2)
+@pytest.mark.qase
 def test_run_agent_rejects_unknown_recommendation_id():
     with pytest.raises(ValueError, match="unknown event ID"):
         _run_with_tool_results([_final_response("unknown")], [])
@@ -148,6 +155,8 @@ def test_run_agent_allows_event_returned_by_get_event_details():
     assert result.recommendations[0].admission is None
 
 
+@qase.id(5)
+@pytest.mark.qase
 def test_run_agent_get_event_details_preserves_search_admission():
     admission = Admission(False, 40, 60, "PLN")
     event = Event(
@@ -190,6 +199,8 @@ def test_run_agent_failed_tool_call_does_not_ground_event_id():
         )
 
 
+@qase.id(3)
+@pytest.mark.qase
 def test_run_agent_filters_seen_and_same_run_events():
     seen_event = Event("seen", "Already seen", None, None, None, None, "test")
     new_event = Event("new", "New event", None, None, None, None, "test")

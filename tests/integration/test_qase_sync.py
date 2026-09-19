@@ -163,6 +163,67 @@ def test_second_sync_does_not_create_duplicates_or_patch_unchanged_case():
     assert not any(method == "PATCH" for method, _, _ in session.calls)
 
 
+def test_sync_prefers_qase_id_without_sending_reference_metadata():
+    suites = _suites()
+    suites[0]["cases"][0]["qase_id"] = 11
+    desired = qase._case_payload(suites[0]["cases"][0], 7)
+
+    def handler(method, path, _kwargs):
+        assert method == "GET"
+        if path == "/suite/EA":
+            return _list_response([{"id": 7, "title": "Event Discovery"}])
+        if path == "/case/EA/11":
+            return _response({"status": True, "result": {"id": 11, **desired}})
+        raise AssertionError(path)
+
+    session = FakeSession(handler)
+    summary = qase.sync_cases(session, suites, dry_run=True)
+
+    assert summary == {
+        "suites_created": 0,
+        "cases_created": 0,
+        "cases_updated": 0,
+        "cases_unchanged": 1,
+    }
+    assert [(method, path) for method, path, _ in session.calls] == [
+        ("GET", "/suite/EA"),
+        ("GET", "/case/EA/11"),
+    ]
+    assert "qase_id" not in desired
+
+
+@pytest.mark.parametrize(
+    ("remote_override", "error_match"),
+    [
+        ({"title": "Different title"}, "different title"),
+        ({"suite_id": 99}, "different suite"),
+    ],
+)
+def test_sync_rejects_qase_id_resolving_to_different_case_or_suite(
+    remote_override,
+    error_match,
+):
+    suites = _suites()
+    suites[0]["cases"][0]["qase_id"] = 11
+    desired = qase._case_payload(suites[0]["cases"][0], 7)
+
+    def handler(method, path, _kwargs):
+        assert method == "GET"
+        if path == "/suite/EA":
+            return _list_response([{"id": 7, "title": "Event Discovery"}])
+        if path == "/case/EA/11":
+            return _response(
+                {
+                    "status": True,
+                    "result": {"id": 11, **desired, **remote_override},
+                }
+            )
+        raise AssertionError(path)
+
+    with pytest.raises(qase.QaseSyncError, match=error_match):
+        qase.sync_cases(FakeSession(handler), suites, dry_run=True)
+
+
 def test_existing_case_is_patched_when_repository_content_changes(capsys):
     desired = qase._case_payload(_suites()[0]["cases"][0], 7)
     stored = {"id": 11, **desired, "description": "Old description"}

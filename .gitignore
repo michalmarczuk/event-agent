@@ -5,4 +5,5 @@ __pycache__/
 .pytest_cache/
 allure-results/
 allure-report/
+qase.lock
 data/seen_events.json

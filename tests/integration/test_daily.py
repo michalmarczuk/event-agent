@@ -5,10 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from qase.pytest import qase
 
 from src.config import SearchLocation, Settings
 
 
+@qase.id(18)
+@pytest.mark.qase
 def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     monkeypatch, caplog,
 ):

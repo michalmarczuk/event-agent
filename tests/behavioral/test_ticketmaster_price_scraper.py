@@ -2,11 +2,14 @@ import logging
 from unittest.mock import MagicMock, call
 
 import pytest
+from qase.pytest import qase
 
 from src.models import Admission
 from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
+@qase.id(13)
+@pytest.mark.qase
 def test_scrape_extracts_two_prices_as_range():
     scraper, _, _ = scraper_for(
         "Search For Tickets\nNormal ticket PLN 63.60 each\n"
@@ -16,6 +19,8 @@ def test_scrape_extracts_two_prices_as_range():
     assert scraper.scrape(_EVENT_URL) == Admission(False, 37.10, 63.60, "PLN")
 
 
+@qase.id(15)
+@pytest.mark.qase
 def test_readiness_ignores_skip_link_until_best_available_is_visible():
     skip_link = "Pomiń, aby wyszukać bilety"
     control_text = "Wybierz najlepsze dostępne miejsca"
@@ -50,7 +55,14 @@ def test_readiness_ignores_skip_link_until_best_available_is_visible():
 
 @pytest.mark.parametrize(
     "consent_text",
-    ["Accept Cookies", "Accept", "Akceptuję"],
+    [
+        "Accept Cookies",
+        "Accept",
+        pytest.param(
+            "Akceptuję",
+            marks=(qase.id(14), pytest.mark.qase),
+        ),
+    ],
 )
 def test_scrape_accepts_localized_consent(consent_text, caplog):
     scraper, page, _ = scraper_for(
@@ -128,6 +140,8 @@ def test_scrape_extracts_prices_from_polish_ticket_section(
     )
 
 
+@qase.id(16)
+@pytest.mark.qase
 def test_scrape_returns_none_for_verification_page():
     scraper, _, _ = scraper_for("Let's Get Your Identity Verified - not a bot")
 

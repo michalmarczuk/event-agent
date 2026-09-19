@@ -1,3 +1,5 @@
+import ast
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -14,8 +16,111 @@ from tests.support.qase_sync_support import (
 )
 
 
-def test_case_file_contains_canceled_event_regression():
+_SMOKE_CASE_TITLES = {
+    "Ticketmaster Discovery API is reachable with valid credentials",
+    "Telegram bot authentication succeeds without sending a message",
+    "Camoufox can reach Ticketmaster through the configured browser network path",
+    "Elastic OTLP endpoint accepts an event-agent log record",
+}
+
+
+def _qualified_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _qualified_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _pytest_qase_links():
+    tests_root = Path(__file__).resolve().parents[1]
+    links = []
+    qase_marker_count = 0
+    for path in sorted(tests_root.rglob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        qase_marker_count += sum(
+            _qualified_name(node) == "pytest.mark.qase"
+            for node in ast.walk(tree)
+        )
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and _qualified_name(node.func) == "qase.id"
+            ):
+                continue
+            assert len(node.args) == 1 and not node.keywords
+            value = node.args[0]
+            assert isinstance(value, ast.Constant)
+            assert isinstance(value.value, int) and not isinstance(value.value, bool)
+
+            parent = node
+            parameter = None
+            function = None
+            while parent in parents:
+                parent = parents[parent]
+                if (
+                    parameter is None
+                    and isinstance(parent, ast.Call)
+                    and _qualified_name(parent.func) == "pytest.param"
+                ):
+                    parameter = parent
+                if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    function = parent
+                    break
+
+            assert function is not None and function.name.startswith("test_")
+            if parameter is not None:
+                assert any(
+                    _qualified_name(candidate) == "pytest.mark.qase"
+                    for candidate in ast.walk(parameter)
+                )
+                owner = (path, function.name, parameter.lineno)
+            else:
+                assert any(
+                    _qualified_name(decorator) == "pytest.mark.qase"
+                    for decorator in function.decorator_list
+                )
+                assert not any(
+                    isinstance(decorator, ast.Call)
+                    and _qualified_name(decorator.func) == "pytest.mark.parametrize"
+                    for decorator in function.decorator_list
+                )
+                owner = (path, function.name, None)
+            links.append((value.value, path, owner))
+    return links, qase_marker_count
+
+
+def test_qase_catalog_and_pytest_traceability_are_complete():
     suites = qase.load_cases(qase.CASES_FILE)
+    cases = [case for suite in suites for case in suite["cases"]]
+
+    assert len(cases) == 27
+    assert all("qase_id" in case for case in cases)
+    catalog_ids = [case["qase_id"] for case in cases]
+    assert all(type(case_id) is int and case_id > 0 for case_id in catalog_ids)
+    assert len(set(catalog_ids)) == len(catalog_ids)
+
+    links, qase_marker_count = _pytest_qase_links()
+    linked_ids = [case_id for case_id, _, _ in links]
+    assert len(links) == 27
+    assert len({owner for _, _, owner in links}) == 27
+    assert qase_marker_count == 27
+    assert Counter(linked_ids) == Counter(catalog_ids)
+
+    smoke_ids = {
+        case["qase_id"] for case in cases if case["title"] in _SMOKE_CASE_TITLES
+    }
+    assert len(smoke_ids) == 4
+    paths_by_id = {case_id: path for case_id, path, _ in links}
+    assert all(
+        paths_by_id[case_id].parent.name == "smoke" for case_id in smoke_ids
+    )
 
     event_discovery = next(
         suite for suite in suites if suite["name"] == "Event Discovery"
@@ -38,8 +143,12 @@ def test_case_file_contains_canceled_event_regression():
 )
 def test_priority_names_map_to_qase_ids(priority, expected_id):
     case = dict(_suites()[0]["cases"][0], priority=priority)
+    case["qase_id"] = 123
 
-    assert qase._case_payload(case, 7)["priority"] == expected_id
+    payload = qase._case_payload(case, 7)
+
+    assert payload["priority"] == expected_id
+    assert "qase_id" not in payload
 
 
 @pytest.mark.parametrize(

@@ -3,6 +3,7 @@
 import time
 
 import pytest
+from qase.pytest import qase
 import requests
 
 from src.config import load_elastic_logging_settings
@@ -15,6 +16,8 @@ def _logs_endpoint(endpoint: str) -> str:
     return f"{base}/v1/logs"
 
 
+@qase.id(27)
+@pytest.mark.qase
 def test_elastic_accepts_otlp_log() -> None:
     """Send one minimal structured log without exposing exporter credentials."""
     settings = load_elastic_logging_settings()

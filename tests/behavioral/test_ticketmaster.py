@@ -2,6 +2,7 @@ import traceback
 from unittest.mock import patch
 
 import pytest
+from qase.pytest import qase
 import requests
 
 from src.config import SearchLocation
@@ -23,6 +24,8 @@ def _discovery_page(number, total_pages, events):
     }
 
 
+@qase.id(1)
+@pytest.mark.qase
 def test_search_events_drops_canceled_event_with_structured_log(caplog):
     data = {
         "_embedded": {
@@ -58,7 +61,16 @@ def test_search_events_drops_canceled_event_with_structured_log(caplog):
 
 
 @pytest.mark.parametrize(
-    "status", ["onsale", "offsale", "postponed", "rescheduled"]
+    "status",
+    [
+        pytest.param(
+            "onsale",
+            marks=(qase.id(10), pytest.mark.qase),
+        ),
+        "offsale",
+        "postponed",
+        "rescheduled",
+    ],
 )
 def test_search_events_keeps_non_canceled_statuses(status):
     event_id = f"{status}-event"
@@ -83,6 +95,8 @@ def test_search_events_keeps_non_canceled_statuses(status):
     assert [event.id for event in events] == [event_id]
 
 
+@qase.id(11)
+@pytest.mark.qase
 def test_search_events_fetches_later_page_after_first_page_is_seen(caplog):
     responses = [
         _discovery_page(0, 2, [_discovery_event(f"seen-{index}") for index in range(10)]),

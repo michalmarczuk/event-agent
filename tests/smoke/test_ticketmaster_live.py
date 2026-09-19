@@ -4,12 +4,15 @@ import os
 
 from dotenv import load_dotenv
 import pytest
+from qase.pytest import qase
 
 from src.config import SearchLocation
 from src.models import Event
 from src.tools.ticketmaster import TicketmasterClient
 
 
+@qase.id(24)
+@pytest.mark.qase
 def test_ticketmaster_discovery_api_is_reachable() -> None:
     """Verify that authenticated Ticketmaster discovery returns domain data."""
     load_dotenv()

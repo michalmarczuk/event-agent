@@ -2,6 +2,7 @@ suites:
   - name: Event Discovery
     cases:
       - title: Canceled Ticketmaster events are excluded
+        qase_id: 1
         description: >-
           Canceled Ticketmaster events must be removed before the agent sees
           search results or selects recommendations.
@@ -21,6 +22,7 @@ suites:
             expected: event.action=ticketmaster_event_filter and event.reason=canceled.
 
       - title: Non-canceled Ticketmaster statuses remain eligible
+        qase_id: 10
         description: >-
           Status filtering must preserve active and changed events while dropping
           only events explicitly marked canceled.
@@ -35,6 +37,7 @@ suites:
             expected: Onsale, offsale, postponed, and rescheduled events remain eligible.
 
       - title: Pagination reaches eligible unseen events within safety bounds
+        qase_id: 11
         description: >-
           Discovery must continue past seen or ineligible results while limiting
           both model-visible candidates and Ticketmaster API requests.
@@ -56,6 +59,7 @@ suites:
             expected: At most five API pages and ten model-visible events are processed.
 
       - title: Ticketmaster discovery failures are credential-safe
+        qase_id: 12
         description: >-
           Ticketmaster request failures remain useful to the agent without
           exposing the provider API key in exceptions, logs, or tool output.
@@ -72,6 +76,7 @@ suites:
             expected: The Ticketmaster API key is absent.
 
       - title: Ticketmaster Discovery API is reachable with valid credentials
+        qase_id: 24
         description: >-
           This live smoke check verifies authenticated connectivity to the
           Ticketmaster Discovery API without depending on a fixed event.
@@ -88,6 +93,7 @@ suites:
   - name: Agent Grounding & Selection
     cases:
       - title: Recommendations require successfully grounded event IDs
+        qase_id: 2
         description: >-
           The agent may select only events grounded by successful tool calls;
           failed calls and invented IDs must not become recommendations.
@@ -106,6 +112,7 @@ suites:
             expected: Only selected recommendation IDs appear in recommended_event_ids.
 
       - title: Seen and same-run duplicate events are excluded
+        qase_id: 3
         description: >-
           Prior history and earlier search results in the same run must not be
           presented to the model again as fresh candidates.
@@ -120,6 +127,7 @@ suites:
             expected: The repeated ID is excluded and only the fresh event is visible.
 
       - title: Model-visible search results contain no Admission or ticket prices
+        qase_id: 4
         description: >-
           Provider pricing remains internal and is not exposed in event data sent to the LLM.
         preconditions: >-
@@ -133,6 +141,7 @@ suites:
             expected: It contains no Admission field, price fields, or provider price values.
 
       - title: Provider Admission remains authoritative in final recommendations
+        qase_id: 5
         description: >-
           Recommendation parsing uses internally retained provider Admission,
           including after a successful event-details lookup.
@@ -147,6 +156,7 @@ suites:
             expected: The details lookup does not erase the Admission discovered during search.
 
       - title: Model-visible search results are capped at ten eligible events
+        qase_id: 6
         description: >-
           The agent must not expose more than ten eligible unseen events from one search result.
         preconditions: >-
@@ -162,6 +172,7 @@ suites:
   - name: Price Enrichment
     cases:
       - title: Only final Ticketmaster recommendations are price-enriched
+        qase_id: 7
         description: >-
           Enrichment scrapes only selected recommendations with valid Ticketmaster URLs.
         preconditions: >-
@@ -175,6 +186,7 @@ suites:
             expected: They are not scraped, and any existing Admission is unchanged.
 
       - title: Successful scrape replaces prior Admission with provider pricing
+        qase_id: 8
         description: >-
           A successful Ticketmaster page scrape becomes the authoritative Admission
           for the selected recommendation.
@@ -189,6 +201,7 @@ suites:
             expected: Its prior Admission is replaced by the scraped provider Admission.
 
       - title: Unavailable or failed price scraping preserves Admission and continues
+        qase_id: 9
         description: >-
           Missing prices or an individual scraper failure must not erase existing
           Admission or prevent later recommendations from being enriched.
@@ -206,6 +219,7 @@ suites:
             expected: Its scraped Admission is applied.
 
       - title: Visible PLN prices are extracted deterministically
+        qase_id: 13
         description: >-
           Visible provider prices are converted into a deterministic PLN
           Admission without requiring a specific ticket-section heading.
@@ -222,6 +236,7 @@ suites:
             expected: Currency is PLN and minimum and maximum values reflect the provider prices.
 
       - title: Localized consent handling is selective and non-fatal
+        qase_id: 14
         description: >-
           Polish and English consent controls are handled without making the
           privacy modal a hard dependency for price extraction.
@@ -236,6 +251,7 @@ suites:
             expected: The scraper continues through its existing non-fatal extraction path.
 
       - title: Bounded readiness reaches localized best-available prices
+        qase_id: 15
         description: >-
           Readiness waits for actionable ticket content and supports Polish and
           English best-available controls without accepting accessibility-only markers.
@@ -252,6 +268,7 @@ suites:
             expected: The post-click PLN price is extracted into Admission.
 
       - title: Unavailable or blocked pages never imply free admission
+        qase_id: 16
         description: >-
           Pages without extractable provider pricing return pricing unavailable
           rather than creating a free Admission or failing the wider batch.
@@ -271,6 +288,7 @@ suites:
   - name: Delivery & Persistence
     cases:
       - title: Enriched provider prices are rendered in Telegram output
+        qase_id: 17
         description: >-
           Deterministic Admission produced after recommendation selection is the
           price source used by the Telegram formatter.
@@ -285,6 +303,7 @@ suites:
             expected: The Telegram message displays the same PLN range in the expected localized format.
 
       - title: History is persisted only after successful Telegram delivery
+        qase_id: 18
         description: >-
           The daily pipeline persists only selected recommendation IDs and only
           after Telegram accepts the formatted report.
@@ -303,6 +322,7 @@ suites:
             expected: The persistence error remains visible and the run is not logged as successful.
 
       - title: Telegram delivery failures never expose bot credentials
+        qase_id: 19
         description: >-
           Telegram transport failures preserve failure semantics while removing
           the bot token from logs and exception output.
@@ -317,6 +337,7 @@ suites:
             expected: The Telegram bot token and credentialed URL are absent.
 
       - title: Telegram bot authentication succeeds without sending a message
+        qase_id: 25
         description: >-
           This live smoke check validates Telegram bot credentials through getMe
           without invoking message delivery.
@@ -333,6 +354,7 @@ suites:
   - name: Observability & Runtime
     cases:
       - title: ECS stdout logs include stable service and pipeline diagnostics
+        qase_id: 20
         description: >-
           Application logs remain one-line ECS JSON and expose structured fields
           for the discovery, scraping, and successful daily-run stages.
@@ -351,6 +373,7 @@ suites:
             expected: Diagnostic fields are present without rendered page body text.
 
       - title: Optional OTLP log export is idempotent and flushed at shutdown
+        qase_id: 21
         description: >-
           Complete Elastic configuration adds one OTLP pipeline, preserves
           structured attributes, and flushes the short-lived job exactly once.
@@ -367,6 +390,7 @@ suites:
             expected: The provider flushes, shuts down, and removes its handler exactly once.
 
       - title: Telemetry failures are non-fatal and credential-safe
+        qase_id: 22
         description: >-
           Optional telemetry configuration and export failures cannot alter the
           daily delivery pipeline or expose the Elastic API key.
@@ -383,6 +407,7 @@ suites:
             expected: The logging failure does not fail delivery, persistence, or logging cleanup.
 
       - title: Camoufox batch lifecycle reuses resources and honors optional proxy
+        qase_id: 23
         description: >-
           Price enrichment owns one Camoufox browser and context per batch while
           cleaning up every page and applying proxy configuration only when supplied.
@@ -401,6 +426,7 @@ suites:
             expected: Browser and Playwright resources are closed exactly once.
 
       - title: Camoufox can reach Ticketmaster through the configured browser network path
+        qase_id: 26
         description: >-
           This live smoke check validates real headed Camoufox startup and
           Ticketmaster page connectivity over direct networking or SCRAPER_PROXY_URL.
@@ -418,6 +444,7 @@ suites:
             expected: Page, context, browser, and Playwright resources are closed reliably.
 
       - title: Elastic OTLP endpoint accepts an event-agent log record
+        qase_id: 27
         description: >-
           This live smoke check validates direct OTLP/HTTP log ingestion
           connectivity without asserting downstream indexing or dashboard visibility.

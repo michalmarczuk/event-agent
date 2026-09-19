@@ -4,9 +4,12 @@ import os
 
 from dotenv import load_dotenv
 import pytest
+from qase.pytest import qase
 import requests
 
 
+@qase.id(25)
+@pytest.mark.qase
 def test_telegram_bot_authentication() -> None:
     """Verify bot identity through getMe without sending a message."""
     load_dotenv()
