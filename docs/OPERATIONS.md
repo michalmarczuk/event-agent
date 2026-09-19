@@ -122,7 +122,7 @@ run the daily agent pipeline or modify event history.
 
 GitHub Actions publishes `production` to `ghcr.io/michalmarczuk/event-agent`
 and `test-runtime` separately to
-`ghcr.io/michalmarczuk/event-agent-smoke`. Use the smoke package for the
+`ghcr.io/michalmarczuk/event-agent-tests`. Use the test package for the
 Hugging Face diagnostic job; it does not replace the production tags.
 
 Run it with runtime secrets and persistent history:

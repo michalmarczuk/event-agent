@@ -49,8 +49,8 @@ jobs:
           target: test-runtime
           push: true
           tags: |
-            ghcr.io/michalmarczuk/event-agent-smoke:latest
-            ghcr.io/michalmarczuk/event-agent-smoke:sha-${{ github.sha }}
+            ghcr.io/michalmarczuk/event-agent-tests:latest
+            ghcr.io/michalmarczuk/event-agent-tests:sha-${{ github.sha }}
 
       - name: Keep latest 5 production container versions
         uses: actions/delete-package-versions@v5
@@ -62,6 +62,6 @@ jobs:
       - name: Keep latest 5 smoke container versions
         uses: actions/delete-package-versions@v5
         with:
-          package-name: event-agent-smoke
+          package-name: event-agent-tests
           package-type: container
           min-versions-to-keep: 5
