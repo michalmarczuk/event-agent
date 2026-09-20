@@ -273,9 +273,12 @@ the deployed job and is excluded from Git and the Docker build context.
 
 ## Testing Boundaries
 
-The default pytest suite is offline and requires no application secrets. It
-mocks OpenAI responses, Ticketmaster HTTP, Telegram HTTP, and Camoufox/Playwright
-objects. Meaningful behavioral coverage includes:
+The test strategy uses Component Testing, Component Integration Testing, System
+Testing, and System Integration Testing; see [Testing Strategy](TESTING.md) for
+the execution model, reporting, and local commands. Component and Component
+Integration Testing run deterministically on the GitHub runner and require no
+application secrets. They mock OpenAI responses, Ticketmaster HTTP, Telegram
+HTTP, and Camoufox/Playwright objects. Meaningful coverage includes:
 
 - initial and continuation Responses API request contracts;
 - grounding, same-run deduplication, seen-ID filtering, and unknown-ID rejection;
@@ -291,9 +294,10 @@ objects. Meaningful behavioral coverage includes:
 - delivery-before-persistence ordering, atomic history writes, and structured
   daily-run summary logging.
 
-Live Ticketmaster/Camoufox checks are manual or opt-in because they depend on
-network access, a third-party UI, and anti-bot behavior. They are not part of
-deterministic CI.
+Seven System Tests run the production container against controlled fake external
+services. The four System Integration smoke checks are opt-in because they use
+real network services and third-party UI behavior; they are not part of
+deterministic GitHub CI.
 
 ## Intentional Tradeoffs
 

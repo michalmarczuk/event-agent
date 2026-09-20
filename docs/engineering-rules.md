@@ -94,7 +94,7 @@ refactors must preserve.
 ## Tests
 
 - Prefer observable-behavior tests over implementation-detail tests.
-- Unit tests must not make real OpenAI, Ticketmaster, Telegram, or browser calls.
+- Component tests must not make real OpenAI, Ticketmaster, Telegram, or browser calls.
 - Tests must run without application secrets.
 - Preserve behavioral coverage for:
   - grounded-ID validation and failed-tool non-grounding;

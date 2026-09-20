@@ -44,6 +44,11 @@ between jobs.
 
 ## Quality and testing
 
+- The ISTQB-aligned test strategy separates Component, Component Integration,
+  System, and System Integration Testing. Component and Component Integration
+  Testing has 183 deterministic checks; seven black-box System Tests exercise
+  the exact production container; four live System Integration smoke checks run
+  separately on Hugging Face.
 - Search paginates past previously seen events (up to five API pages), returns
   at most ten eligible candidates, and filters canceled events before the model
   sees them. Same-run duplicates and previously delivered IDs are also filtered.
@@ -53,17 +58,29 @@ between jobs.
 - Scraper failures are isolated per recommendation and preserve any existing
   provider `Admission`; they do not fail the daily run.
 - History stores recommended IDs only after Telegram delivery succeeds.
-- Unit tests use no real network, OpenAI, Ticketmaster, Telegram, or browser
-  calls. Run the complete suite with `pytest -q`.
+- Component and Component Integration tests use no real OpenAI, Ticketmaster,
+  Telegram, or browser calls. The Allure CI report combines their 183 results
+  with seven System Test results; Qase tracks the seven System and four live
+  System Integration scenarios.
+
+```mermaid
+flowchart TB
+    component["Component + Component Integration Testing\nGitHub runner"] --> allure["Allure / GitHub Pages"]
+    system["System Testing\nproduction container + fake services"] --> allure
+    system --> qase["Qase System cases"]
+    live["System Integration Testing\nHugging Face + live services"] --> qase_live["Qase live cases + HF logs"]
+```
+
+See the [testing strategy](docs/TESTING.md) for levels, markers, black-box
+architecture, reporting, and local commands.
 
 ## Local development
 
 ```bash
 python3.13 -m venv .event-agent-venv
 source .event-agent-venv/bin/activate
-pip install -r requirements.txt
-pip install pytest
-pytest -q
+pip install -r requirements-test.txt
+pytest -q tests/component tests/component_integration
 python -m camoufox fetch
 cp .env.example .env  # fill in local credentials before running the job
 python src/daily.py

@@ -10,14 +10,14 @@ source .event-agent-venv/bin/activate
 pip install -r requirements-test.txt
 ```
 
-The default offline pytest suite needs neither application secrets nor a
-downloaded browser:
+Component and Component Integration Testing needs neither application secrets
+nor a downloaded browser:
 
 ```bash
-pytest -q
+pytest -q tests/component tests/component_integration
 ```
 
-Run the retained local offline regression subset without Qase publishing:
+Run the retained local regression subset without Qase publishing:
 
 ```bash
 pytest -m regression -q
@@ -34,14 +34,15 @@ Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
 
 ```bash
-pytest -q --alluredir=allure-results --clean-alluredir
+pytest -q --alluredir=allure-results --clean-alluredir \
+  tests/component tests/component_integration
 allure generate allure-results --clean -o allure-report
 ```
 
-The unified CI workflow runs the full offline suite once for its quality gate
-and latest-only GitHub Pages report. A separate job reruns only the 23 linked
-offline cases for Qase reporting. It does not retain Allure history or run the
-opt-in live smoke tests.
+See [Testing Strategy](TESTING.md) for test levels, markers, local commands,
+and reporting boundaries. The unified CI workflow runs Component and Component
+Integration Testing once for its primary quality gate; it does not run live
+System Integration smoke checks.
 
 For a live daily run, install the Camoufox browser payload and create local
 configuration from the sanitized template:
@@ -121,8 +122,11 @@ Camoufox uses its API.
 
 - `production` is the default and final target. It contains application runtime
   files but does not copy `tests/` or install pytest.
-- `test-runtime` additionally installs pytest and copies `tests/`, `pytest.ini`,
-  and the repository scripts required by live smoke checks.
+- `test-runtime` is a source-free black-box test runtime. It installs pytest and
+  copies only `tests/system/`, `tests/system_integration/`, needed
+  `tests/support/` modules, pytest/Qase configuration, and live-smoke scripts;
+  it does not contain `/app/src`, Component tests, or Component Integration
+  tests.
 
 Build the image locally:
 
@@ -139,8 +143,9 @@ docker build --target test-runtime -t event-agent:test-runtime .
 
 Its default command is `/app/scripts/run_hf_smoke.sh`. The wrapper establishes
 the same Tailscale userspace SOCKS5 route as production, exports
-`SCRAPER_PROXY_URL`, runs `pytest --run-smoke -m smoke -q` through Xvfb, and
-then cleans up `tailscaled`. It returns pytest's exit code. The smoke job checks
+`SCRAPER_PROXY_URL`, runs
+`pytest tests/system_integration --run-smoke -m "smoke and live" -q` through
+Xvfb, and then cleans up `tailscaled`. It returns pytest's exit code. The smoke job checks
 Ticketmaster API connectivity, Telegram bot authentication without sending a
 message, Camoufox browser connectivity, and Elastic OTLP ingestion. It does not
 run the daily agent pipeline or modify event history.
@@ -217,22 +222,24 @@ One `CI` workflow runs on pushes to `main` and on manual dispatch, so GitHub
 shows the pipeline as one workflow run with this dependency graph:
 
 ```text
-offline tests + Allure results
+Component + Component Integration Tests
 ├── build and publish production image (passing tests only)
 ├── build and publish test-runtime image (passing tests only)
 └── black-box System Tests
-    ├── publish seven saved System Test results to Qase (non-blocking)
-    └── generate Allure report -> deploy GitHub Pages
+    ├── local Qase report -> publish seven System Test results (non-blocking)
+    └── merge 183 Component/Component Integration and 7 System results
+        -> Allure report -> deploy GitHub Pages
 ```
 
-The offline job uploads `allure-results` before restoring pytest's exit code. A
-failed suite therefore skips image builds and System Tests, remains visible as a
-failed CI run, and still allows the report and Pages deployment to complete.
-System Tests produce both Allure and local Qase-format results in their single
-black-box execution. Qase publication imports exactly those seven saved results
-into a `System Tests` run; a publication failure is visible but does not block
-the quality gates or Pages deployment. Docker, Allure-generation, or Pages
-failures still leave the same CI run failed.
+The Component + Component Integration job uploads `allure-results` before
+restoring pytest's exit code. A failed job therefore skips image builds and
+System Tests, remains visible as a failed CI run, and still allows report and
+Pages deployment to complete. System Tests produce both Allure and local
+Qase-format results in one black-box execution. Qase publication imports
+exactly those seven saved results into a `System Tests` run; a publication
+failure is visible but does not block quality gates or Pages deployment.
+Docker, Allure-generation, or Pages failures still leave the same CI run
+failed.
 
 The two independently cleaned GHCR packages are:
 
@@ -492,8 +499,9 @@ Update the Hugging Face Job to the desired tag, normally `latest` for the curren
 
 ## Deployment Responsibility
 
-- GitHub Actions: offline tests, automated offline Qase reporting, latest-only
-  Allure Pages publication, and Docker image builds.
+- GitHub Actions: Component and Component Integration Testing, production and
+  test-image builds, black-box System Testing, non-blocking publication of
+  saved System results to Qase, and latest-only Allure Pages publication.
 - GHCR: Docker image registry.
 - Hugging Face Jobs: production runtime and scheduler.
 - Hugging Face Storage Bucket: persistent event history.
