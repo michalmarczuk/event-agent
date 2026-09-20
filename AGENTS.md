@@ -46,50 +46,29 @@ pip check
 git diff --check
 ```
 
-Unit tests must run without application secrets and must not make real network
-calls, including OpenAI, Ticketmaster, Telegram, or browser calls.
+Component tests must run without application secrets and must not make real
+network calls, including OpenAI, Ticketmaster, Telegram, or browser calls.
 
-## Non-negotiable Invariants
+## Engineering Contracts
 
-- The LLM must never invent, infer, or reproduce ticket prices.
-- Price enrichment is deterministic and occurs only after recommendations are
-  selected.
-- Browser scraping runs only for final recommendations.
-- Missing price data means unknown, never free admission.
-- Successful scraped provider data replaces prior `Admission`; failed or
-  unavailable scraping preserves it.
-- Retain provider Admission internally, but omit Admission and price fields from
-  successful model-visible search results.
-- Event IDs must be grounded by successful tool calls.
-- Persist only recommended event IDs, and only after successful Telegram
-  delivery.
-- A price-scraping failure must not fail the daily run.
-- Keep agent orchestration separate from deterministic enrichment.
+The detailed behavioral, security, testing, and persistence contracts are
+canonical in [Engineering Rules](docs/engineering-rules.md). Preserve them when
+changing code; in particular, keep agent orchestration separate from
+deterministic enrichment, protect provider-owned pricing, and preserve
+delivery-before-persistence ordering.
 
 ## Browser Rules
 
-- Camoufox is the single browser backend. Do not add a browser-provider layer or
-  multi-browser abstraction without an actual requirement.
-- Reuse one Camoufox browser and context for a recommendation batch.
-- Create one page per recommendation and close it after that scrape.
-- Use the bounded condition-based Ticketmaster readiness wait. It must remain
-  non-fatal and must not be replaced with an arbitrary fixed sleep.
-- Keep proxy support to the optional `SCRAPER_PROXY_URL` passed directly to
-  Camoufox. Do not add proxy credentials, provider layers, custom anti-bot, or
-  CAPTCHA-handling logic without an explicit task.
+Camoufox is the only browser backend. Follow the lifecycle, readiness, proxy,
+and failure-isolation rules in [Engineering Rules](docs/engineering-rules.md);
+do not introduce another browser/provider abstraction without an explicit
+requirement.
 
 ## Security and Runtime State
 
-- Read Python application environment variables only through `src/config.py`;
-  the HF wrapper may read only its documented Tailscale variables.
-- Treat `TAILSCALE_AUTHKEY` as a secret. Never print, commit, bake into an image,
-  or pass it as a plain Hugging Face `--env` value.
-- Treat `ELASTIC_API_KEY` as a secret and `ELASTIC_OTLP_ENDPOINT` as non-secret
-  configuration. Never print or commit the API key.
-- Never expose credentials in logs, exceptions, or model-visible tool output.
-- Keep `.env` and runtime `data/seen_events.json` out of Git and Docker build
-  context.
-- Keep Docker images secret-free.
+Follow the canonical secret, environment, telemetry, and runtime-state rules in
+[Engineering Rules](docs/engineering-rules.md). Never expose credentials in
+logs, exceptions, model-visible output, Git, or Docker images.
 
 ## Change Discipline
 

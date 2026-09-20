@@ -30,6 +30,13 @@ separate non-blocking reporting job. The four linked live smoke cases are
 separate Hugging Face runs. The case synchronizer manages catalog definitions
 only; it does not publish pytest execution results.
 
+### Qase case catalog administration
+
+`scripts/sync_qase_cases.py` is a manual administrative tool for synchronizing
+the Qase test-case catalog from `tests/qase_cases.yaml`. It is not part of the
+normal CI pipeline and should not run on every build. It requires
+`QASE_API_TOKEN`.
+
 Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
 
@@ -219,29 +226,11 @@ Mount `/app/data` to persistent storage. Without that mount, `seen_events.json` 
 ## GitHub Actions, Allure, and GHCR
 
 One `CI` workflow runs on pushes to `main` and on manual dispatch. The full
-test strategy and reporting model are in [Testing Strategy](TESTING.md); this
-operational view shows the deployed CI flow:
-
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
-flowchart TB
-    component["Component +<br/>Component Integration\n183"] --> production["Build<br/>production"]
-    component --> test_image["Build<br/>test image"]
-    production --> system["System tests\n7"]
-    test_image --> system
-    component --> allure["Allure report\n190"]
-    system --> allure
-    allure --> pages["Deploy Pages"]
-    system --> local["Local Qase"]
-    local --> publish["Publish System<br/>Results to Qase"]
-
-    classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
-    classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
-    classDef report fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
-    class component ci;
-    class production,test_image,system image;
-    class allure,pages,local,publish report;
-```
+test strategy, job graph, and reporting model are in
+[Testing Strategy](TESTING.md#reporting-and-traceability). Operationally, CI
+runs Component and Component Integration Testing, builds both images, runs
+System Tests, publishes Allure to Pages, and imports the saved System results
+to Qase without re-running them.
 
 The Component + Component Integration job uploads `allure-results` before
 restoring pytest's exit code. A failed job therefore skips image builds and

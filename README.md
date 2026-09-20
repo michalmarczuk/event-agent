@@ -12,10 +12,10 @@ prices, delivery, and history.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    discover["Discover events<br/>Ticketmaster"] --> select["AI selects<br/>relevant events"]
-    select --> enrich["Enrich selected events<br/>with real price data"]
-    enrich --> send["Send Telegram<br/>digest"]
-    send --> remember["Remember delivered<br/>events"]
+    discover["Search events<br/>via public APIs"] --> select["Filter and rank events<br/>with AI"]
+    select --> enrich["Enrich selected events<br/>with web data"]
+    enrich --> send["Send personalized<br/>Telegram digest"]
+    send --> remember["Track delivered events<br/>to avoid duplicates"]
 
     classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -29,25 +29,10 @@ See the [full architecture →](docs/architecture.md) for the technical and runt
 
 ### Daily execution
 
-```text
-Hugging Face Jobs / Docker -> daily.py -> load /app/data/seen_events.json
-  -> Ticketmaster Discovery API (paginate; filter seen and canceled events)
-  -> OpenAI Responses API (tool loop; select grounded recommendations)
-  -> deterministic price enrichment -> Camoufox -> Ticketmaster ticket pages
-       HF browser traffic: local SOCKS5 -> Tailscale -> Raspberry Pi exit node
-  -> deterministic Telegram HTML -> Telegram API
-  -> save recommended IDs to /app/data/seen_events.json after successful delivery
-```
-
-The daily flow persists recommended IDs only after Telegram delivery succeeds.
-
-The Discovery API supplies candidate events. The agent can call tools and
-continue its Responses API conversation, but can recommend only IDs grounded by
-successful tool results. After selection, Camoufox scrapes visible prices for
-final Ticketmaster recommendations only. On Hugging Face, Tailscale userspace
-networking routes Camoufox through the Raspberry Pi/home-network exit IP; local
-runs need no proxy. A persistent `/app/data` mount retains `seen_events.json`
-between jobs.
+A scheduled job filters canceled and previously delivered Ticketmaster events,
+asks OpenAI to choose grounded recommendations, then enriches only the final
+choices before sending Telegram. It records delivered IDs only after successful
+delivery; see [Architecture](docs/architecture.md) for the complete flow.
 
 ## Quality and testing
 
@@ -73,10 +58,10 @@ between jobs.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component tests\nrunner"] --> allure["Allure / Pages"]
-    system["System tests\nproduction image"] --> allure
+    component["Component tests<br/>runner"] --> allure["Allure / Pages"]
+    system["System tests<br/>production image"] --> allure
     system --> qase["Qase"]
-    live["Live smoke\nHF"] --> qase_live["Qase + logs"]
+    live["Live smoke<br/>HF"] --> qase_live["Qase + logs"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;

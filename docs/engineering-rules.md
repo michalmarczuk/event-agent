@@ -159,8 +159,8 @@ git diff --check
   must prevent the Python application from starting.
 - The wrapper must use Tailscale userspace networking and keep its SOCKS5
   listener bound to container-local `127.0.0.1`.
-- The wrapper must `exec` the final Xvfb/Python process so signals reach the
-  application through tini.
+- The wrapper must run the final Xvfb/Python child while retaining lifecycle
+  cleanup for `tailscaled`.
 - Do not expose the Raspberry Pi or 3proxy to the public internet. The HF job
   reaches the exit node through the private tailnet.
 

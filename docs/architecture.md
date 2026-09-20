@@ -63,7 +63,7 @@ flowchart TB
     enrichment --> camoufox --> tm_web
     delivery --> telegram_api
     history --> filtering
-    delivery -->|"successful delivery only"| history
+    delivery -->|"successful<br/>delivery only"| history
     discovery --> logs
     selection --> logs
     enrichment --> logs
@@ -116,12 +116,12 @@ flowchart TB
     eligible -->|"yes"| agent
     eligible -->|"no"| no_events
     recommendations --> enrich
-    enrich -->|"no price: preserve admission"| format
-    send -->|"success only"| persist --> success
+    enrich -->|"no price:<br/>preserve admission"| format
+    send -->|"success<br/>only"| persist --> success
     no_events_send --> no_events_success
 
-    agent -. "failure: no partial history" .-> stop(["Exit with failure"])
-    send -. "failure: no partial history" .-> stop
+    agent -. "failure:<br/>no partial history" .-> stop(["Exit with failure"])
+    send -. "failure:<br/>no partial history" .-> stop
 
     classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -402,7 +402,7 @@ retains ordinary outbound connections for its APIs and logs.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
-flowchart LR
+flowchart TB
     subgraph build["Build & Registry"]
         gha["GitHub Actions"] --> ghcr["GHCR production"]
         gha --> ghcr_tests["GHCR tests"]
@@ -410,15 +410,15 @@ flowchart LR
 
     subgraph hf["Hugging Face Runtime"]
         job["HF Job"] --> wrapper["run_hf.sh"]
-        authkey["TAILSCALE_AUTHKEY\nsecret"] --> wrapper
-        wrapper --> app["daily.py + Camoufox"]
-        wrapper --> tailscale["Tailscale userspace"]
-        tailscale --> socks["SOCKS5\n127.0.0.1:1055"]
+        authkey["TAILSCALE_AUTHKEY<br/>secret"] --> wrapper
+        wrapper --> app["daily.py +<br/>Camoufox"]
+        wrapper --> tailscale["Tailscale<br/>userspace"]
+        tailscale --> socks["SOCKS5<br/>127.0.0.1:1055"]
         storage["/app/data"] <--> app
     end
 
     subgraph egress["Private Egress"]
-        socks --> exit_node["Raspberry Pi\nexit node"]
+        socks --> exit_node["Raspberry Pi<br/>exit node"]
         private["No public listener"] --- exit_node
     end
 
@@ -434,12 +434,12 @@ flowchart LR
     end
 
     ghcr --> job
-    app -->|"Camoufox only"| socks
+    app -->|"Camoufox<br/>only"| socks
     exit_node --> tm_web
     app --> tm_api
     app --> openai
     app --> telegram
-    app -->|"optional logs"| elastic
+    app -->|"optional<br/>logs"| elastic
 
     classDef build fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef runtime fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;

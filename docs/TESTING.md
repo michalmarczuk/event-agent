@@ -38,20 +38,20 @@ traceability from a representative pytest scenario to a Qase case.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component<br/>Testing\ntests/component"] --> runner["GitHub runner\npytest"]
-    component_integration["Component Integration<br/>Testing\ntests/component_integration"] --> runner
-    runner --> allure["Allure\n183"]
+    component["Component<br/>Testing<br/>tests/component"] --> runner["GitHub runner<br/>pytest"]
+    component_integration["Component Integration<br/>Testing<br/>tests/component_integration"] --> runner
+    runner --> allure["Allure<br/>183"]
 
-    system["System<br/>Testing\ntests/system"] --> sut["event-agent\nproduction<br/>image"]
-    fake["event-agent-tests\nfake services"] --> sut
-    sut --> artifacts["Artifacts\nexit · logs · journal · data"]
-    artifacts --> assertions["event-agent-tests\nassertions"]
+    system["System<br/>Testing<br/>tests/system"] --> sut["event-agent<br/>production<br/>image"]
+    fake["event-agent-tests<br/>fake services"] --> sut
+    sut --> artifacts["Artifacts<br/>exit · logs · journal · data"]
+    artifacts --> assertions["event-agent-tests<br/>assertions"]
     assertions --> allure
     assertions --> qase_local["Local Qase"]
-    qase_local --> qase["Qase\n7 cases"]
+    qase_local --> qase["Qase<br/>7 cases"]
 
-    system_integration["System Integration<br/>Testing\ntests/system_integration"] --> hf["HF\nlive services"]
-    hf --> qase_live["Qase + logs\n4 cases"]
+    system_integration["System Integration<br/>Testing<br/>tests/system_integration"] --> hf["HF<br/>live services"]
+    hf --> qase_live["Qase + logs<br/>4 cases"]
 
     classDef github fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -78,12 +78,12 @@ network access.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
-    fake["event-agent-tests\nfake services"] --> network["Private Docker<br/>network"]
-    network --> sut["event-agent\nproduction<br/>container"]
-    sut --> artifacts["Artifacts\nexit · logs · journal · data"]
-    artifacts --> assertions["event-agent-tests\nassertions"]
-    assertions --> allure["Allure\n7 results"]
-    assertions --> qase["Local Qase\n7 cases"]
+    fake["event-agent-tests<br/>fake services"] --> network["Private Docker<br/>network"]
+    network --> sut["event-agent<br/>production<br/>container"]
+    sut --> artifacts["Artifacts<br/>exit · logs · journal · data"]
+    artifacts --> assertions["event-agent-tests<br/>assertions"]
+    assertions --> allure["Allure<br/>7 results"]
+    assertions --> qase["Local Qase<br/>7 cases"]
 
     classDef lime fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
     classDef boundary fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
@@ -112,19 +112,19 @@ The seven deterministic scenarios cover:
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component +<br/>Component Integration\n183"] --> production["Build<br/>production"]
+    component["Component +<br/>Component Integration<br/>183"] --> production["Build<br/>production"]
     component --> test_image["Build<br/>test image"]
-    production --> system["System tests\n7 black-box"]
+    production --> system["System tests<br/>7 black-box"]
     test_image --> system
-    component --> allure["Allure report\n190 results"]
+    component --> allure["Allure report<br/>190 results"]
     system --> allure
     allure --> pages["Deploy Pages"]
 
     system --> local["Local Qase"]
     local --> publish["Publish System<br/>Results to Qase"]
-    publish --> qase["Qase System\n28–34"]
+    publish --> qase["Qase System<br/>28–34"]
 
-    hf["HF live smoke\n4 checks"] --> qase_live["Qase + logs\n24–27"]
+    hf["HF live smoke<br/>4 checks"] --> qase_live["Qase + logs<br/>24–27"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
