@@ -124,5 +124,5 @@ docker run --rm \
     --env EVENT_AGENT_SYSTEM_DATA_DIR=/data \
     --env QASE_MODE=off \
     "$test_image" \
-    pytest -q -m system tests/system/test_daily_black_box.py \
+    pytest -q tests/system/test_daily_black_box.py \
         --alluredir=/allure-results --clean-alluredir

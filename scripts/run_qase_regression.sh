@@ -19,4 +19,4 @@ export QASE_TESTOPS_RUN_COMPLETE="true"
 export QASE_TESTOPS_RUN_TAGS="offline,regression"
 export QASE_TESTOPS_SHOW_PUBLIC_REPORT_LINK="false"
 
-exec pytest -m "qase and not smoke" -q
+exec pytest -m regression -q

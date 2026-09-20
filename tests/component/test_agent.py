@@ -10,6 +10,7 @@ from src.config import SearchLocation, Settings
 from src.models import Admission, Event, EventDetails, Recommendation
 from tests.support.agent_support import (
     TEST_SETTINGS,
+    _BASE_RECOMMENDATION,
     _final_response,
     _run_with_tool_results,
     _tool_response,
@@ -17,7 +18,7 @@ from tests.support.agent_support import (
 
 
 @qase.id(4)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     admission = Admission(
         False,
@@ -137,7 +138,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
 
 
 @qase.id(6)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_model_visible_search_caps_oversized_tool_result_after_filtering():
     tool_call = _tool_response(
         "response-1", "search_events", "call-1", days_ahead=30
@@ -165,7 +166,7 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
 
 
 @qase.id(2)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_run_agent_rejects_unknown_recommendation_id():
     with pytest.raises(ValueError, match="unknown event ID"):
         _run_with_tool_results([_final_response("unknown")], [])
@@ -190,7 +191,7 @@ def test_run_agent_allows_event_returned_by_get_event_details():
 
 
 @qase.id(5)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_run_agent_get_event_details_preserves_search_admission():
     admission = Admission(False, 40, 60, "PLN")
     event = Event(
@@ -234,7 +235,7 @@ def test_run_agent_failed_tool_call_does_not_ground_event_id():
 
 
 @qase.id(3)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_run_agent_filters_seen_and_same_run_events():
     seen_event = Event("seen", "Already seen", None, None, None, None, "test")
     new_event = Event("new", "New event", None, None, None, None, "test")
@@ -288,3 +289,54 @@ def test_run_agent_returns_only_recommended_event_ids():
 
     assert result.recommended_event_ids == {"event-1", "event-2"}
     assert not hasattr(result, "discovered_event_ids")
+
+
+def test_parse_recommendations_returns_recommendation_model():
+    payload = _BASE_RECOMMENDATION | {
+        "event_id": "event-1",
+        "category": "culture",
+        "date": "2026-09-10",
+        "time": "19:00",
+        "venue": "Town Hall",
+        "reason": "A local concert.",
+        "url": "https://example.test/concert",
+    }
+
+    recommendations = agent._parse_recommendations(
+        json.dumps({"recommendations": [payload]}),
+        {"event-1": None},
+    )
+
+    assert isinstance(recommendations[0], Recommendation)
+    assert recommendations[0].name == "Concert"
+    assert recommendations[0].category == "culture"
+    assert recommendations[0].date == "2026-09-10"
+
+
+@pytest.mark.parametrize(
+    "admission",
+    [Admission(False, 40, 60, "PLN"), None],
+)
+def test_parse_recommendations_uses_source_admission(admission):
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    _BASE_RECOMMENDATION | {"event_id": "event-1"}
+                ]
+            }
+        ),
+        {"event-1": admission},
+    )
+
+    assert recommendations[0].admission == admission
+
+
+def test_parse_recommendations_rejects_more_than_seven():
+    recommendation = _BASE_RECOMMENDATION | {"event_id": "event-1"}
+
+    with pytest.raises(ValueError, match="more than 7"):
+        agent._parse_recommendations(
+            json.dumps({"recommendations": [recommendation] * 8}),
+            {"event-1": None},
+        )

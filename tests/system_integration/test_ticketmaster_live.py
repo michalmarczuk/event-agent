@@ -14,7 +14,8 @@ _TICKETMASTER_EVENTS_URL = (
 
 
 @qase.id(24)
-@pytest.mark.qase
+@pytest.mark.smoke
+@pytest.mark.live
 def test_ticketmaster_discovery_api_is_reachable() -> None:
     """Verify authenticated Ticketmaster Discovery API connectivity."""
     load_dotenv()

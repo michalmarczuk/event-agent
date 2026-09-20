@@ -17,7 +17,8 @@ def _logs_endpoint(endpoint: str) -> str:
 
 
 @qase.id(27)
-@pytest.mark.qase
+@pytest.mark.smoke
+@pytest.mark.live
 def test_elastic_accepts_otlp_log() -> None:
     """Send one minimal structured log without exposing exporter credentials."""
     load_dotenv()

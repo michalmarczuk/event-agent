@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir -r requirements-test.txt
 
 COPY scripts/run_hf_qase_smoke.sh scripts/run_hf_smoke.sh scripts/run_hf_smoke_runtime.sh scripts/
 COPY tests/__init__.py tests/conftest.py tests/
-COPY tests/smoke/ tests/smoke/
+COPY tests/system_integration/ tests/system_integration/
 COPY tests/system/ tests/system/
 COPY tests/support/__init__.py tests/support/fake_external_services.py tests/support/
 COPY pytest.ini qase.config.json ./

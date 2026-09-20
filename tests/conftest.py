@@ -1,13 +1,10 @@
-"""Apply taxonomy markers according to each test file's directory."""
+"""Configure opt-in live tests and safe Qase selections."""
 
 import os
-from pathlib import Path
 
 import pytest
 
 
-_TESTS_ROOT = Path(__file__).parent
-_CATEGORIES = {"unit", "behavioral", "integration", "system", "smoke"}
 _QASE_REPORTING_MODE = "testops"
 
 
@@ -25,20 +22,16 @@ def pytest_collection_modifyitems(
     config: pytest.Config,
     items: list[pytest.Item],
 ) -> None:
-    """Mark tests in category directories without changing their modules."""
-    for item in items:
-        if not item.path.is_relative_to(_TESTS_ROOT):
-            continue
-        category = item.path.relative_to(_TESTS_ROOT).parts[0]
-        if category in _CATEGORIES:
-            item.add_marker(getattr(pytest.mark, category))
-
+    """Keep live checks opt-in while leaving level classification to paths."""
     if config.getoption("--run-smoke"):
         return
 
     skip_smoke = pytest.mark.skip(reason="requires --run-smoke")
     for item in items:
-        if item.get_closest_marker("smoke") is not None:
+        if (
+            item.get_closest_marker("smoke") is not None
+            or item.get_closest_marker("live") is not None
+        ):
             item.add_marker(skip_smoke)
 
 
@@ -47,11 +40,16 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     if os.environ.get("QASE_MODE", "").casefold() != _QASE_REPORTING_MODE:
         return
 
-    unlinked_node_ids = [
-        item.nodeid
-        for item in session.items
-        if item.get_closest_marker("qase") is None
-    ]
+    def is_safe_qase_item(item: pytest.Item) -> bool:
+        return (
+            item.get_closest_marker("regression") is not None
+            or (
+                item.get_closest_marker("smoke") is not None
+                and item.get_closest_marker("live") is not None
+            )
+        )
+
+    unlinked_node_ids = [item.nodeid for item in session.items if not is_safe_qase_item(item)]
     if not unlinked_node_ids:
         return
 
@@ -61,6 +59,6 @@ def pytest_collection_finish(session: pytest.Session) -> None:
         preview = f"{preview}, and {remainder} more"
     raise pytest.UsageError(
         "Qase reporting safety guard rejected "
-        f"{len(unlinked_node_ids)} selected test(s) without the qase marker: "
-        f"{preview}. Select only linked tests with a qase marker expression."
+        f"{len(unlinked_node_ids)} selected test(s) without a safe Qase marker: "
+        f"{preview}. Select only regression or smoke-and-live tests."
     )

@@ -127,7 +127,7 @@ printf '%s\\n' "$@" > "${QASE_TEST_CAPTURE}.args"
     assert result.returncode == 0
     assert (tmp_path / "capture.args").read_text().splitlines() == [
         "-m",
-        "qase and not smoke",
+        "regression",
         "-q",
     ]
     assert (tmp_path / "capture.env").read_text().splitlines() == [
@@ -146,13 +146,13 @@ printf '%s\\n' "$@" > "${QASE_TEST_CAPTURE}.args"
 def test_qase_reporting_guard_rejects_an_unlinked_selected_test():
     result = _run_isolated_pytest(
         "-q",
-        "tests/unit/test_config.py::test_load_scraper_proxy_url_is_optional",
+        "tests/component/test_config.py::test_load_scraper_proxy_url_is_optional",
     )
     output = result.stdout + result.stderr
 
     assert result.returncode != 0
     assert "Qase reporting safety guard rejected 1 selected test" in output
-    assert "qase marker expression" in output
+    assert "regression or smoke-and-live" in output
     assert _SECRET not in output
 
 
@@ -161,13 +161,13 @@ def test_qase_reporting_guard_allows_only_linked_offline_selection():
         "--collect-only",
         "-q",
         "-m",
-        "qase and not smoke",
-    )
+        "regression",
+        )
     output = result.stdout + result.stderr
 
     assert result.returncode == 0, output
     assert "23/" in output or "23 tests collected" in output
-    assert "tests/smoke/" not in output
+    assert "tests/system_integration/" not in output
     assert "Qase reporting safety guard rejected" not in output
     assert _SECRET not in output
 
@@ -178,12 +178,12 @@ def test_qase_reporting_guard_allows_only_linked_smoke_selection():
         "-q",
         "--run-smoke",
         "-m",
-        "qase and smoke",
+        "smoke and live",
     )
     output = result.stdout + result.stderr
 
     assert result.returncode == 0, output
     assert "4/" in output or "4 tests collected" in output
-    assert "tests/smoke/" in output
+    assert "tests/system_integration/" in output
     assert "Qase reporting safety guard rejected" not in output
     assert _SECRET not in output

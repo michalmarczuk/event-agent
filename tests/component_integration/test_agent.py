@@ -12,7 +12,7 @@ from tests.support.agent_support import _BASE_RECOMMENDATION, _tool_response
 
 
 @qase.id(12)
-@pytest.mark.qase
+@pytest.mark.regression
 def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
     caplog,
 ):

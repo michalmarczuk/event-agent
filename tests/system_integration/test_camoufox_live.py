@@ -60,7 +60,8 @@ def _open_ticketmaster(proxy_url: str | None) -> tuple[int | None, str, str]:
 
 
 @qase.id(26)
-@pytest.mark.qase
+@pytest.mark.smoke
+@pytest.mark.live
 def test_camoufox_reaches_ticketmaster() -> None:
     """Verify headed Camoufox connectivity without requiring event pricing."""
     load_dotenv()

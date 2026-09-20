@@ -9,7 +9,8 @@ import requests
 
 
 @qase.id(25)
-@pytest.mark.qase
+@pytest.mark.smoke
+@pytest.mark.live
 def test_telegram_bot_authentication() -> None:
     """Verify bot identity through getMe without sending a message."""
     load_dotenv()

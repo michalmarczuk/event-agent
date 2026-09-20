@@ -36,7 +36,6 @@ def _qualified_name(node):
 def _pytest_qase_links():
     tests_root = Path(__file__).resolve().parents[1]
     links = []
-    qase_marker_count = 0
     for path in sorted(tests_root.rglob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         parents = {
@@ -44,10 +43,6 @@ def _pytest_qase_links():
             for parent in ast.walk(tree)
             for child in ast.iter_child_nodes(parent)
         }
-        qase_marker_count += sum(
-            _qualified_name(node) == "pytest.mark.qase"
-            for node in ast.walk(tree)
-        )
         for node in ast.walk(tree):
             if not (
                 isinstance(node, ast.Call)
@@ -77,14 +72,30 @@ def _pytest_qase_links():
             assert function is not None and function.name.startswith("test_")
             if parameter is not None:
                 assert any(
-                    _qualified_name(candidate) == "pytest.mark.qase"
+                    _qualified_name(candidate) == "pytest.mark.regression"
                     for candidate in ast.walk(parameter)
+                ) or (
+                    any(
+                        _qualified_name(candidate) == "pytest.mark.smoke"
+                        for candidate in ast.walk(parameter)
+                    )
+                    and any(
+                        _qualified_name(candidate) == "pytest.mark.live"
+                        for candidate in ast.walk(parameter)
+                    )
                 )
                 owner = (path, function.name, parameter.lineno)
             else:
-                assert any(
-                    _qualified_name(decorator) == "pytest.mark.qase"
+                decorator_names = {
+                    _qualified_name(decorator)
                     for decorator in function.decorator_list
+                }
+                assert (
+                    "pytest.mark.regression" in decorator_names
+                    or {
+                        "pytest.mark.smoke",
+                        "pytest.mark.live",
+                    }.issubset(decorator_names)
                 )
                 assert not any(
                     isinstance(decorator, ast.Call)
@@ -93,7 +104,7 @@ def _pytest_qase_links():
                 )
                 owner = (path, function.name, None)
             links.append((value.value, path, owner))
-    return links, qase_marker_count
+    return links
 
 
 def test_qase_catalog_and_pytest_traceability_are_complete():
@@ -106,12 +117,30 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     assert all(type(case_id) is int and case_id > 0 for case_id in catalog_ids)
     assert len(set(catalog_ids)) == len(catalog_ids)
 
-    links, qase_marker_count = _pytest_qase_links()
+    links = _pytest_qase_links()
     linked_ids = [case_id for case_id, _, _ in links]
     assert len(links) == 27
     assert len({owner for _, _, owner in links}) == 27
-    assert qase_marker_count == 27
     assert Counter(linked_ids) == Counter(catalog_ids)
+
+    tests_root = Path(__file__).resolve().parents[1]
+    qase_marker = ".".join(("pytest", "mark", "qase"))
+    assert all(
+        _qualified_name(node) != qase_marker
+        for path in sorted(tests_root.rglob("test_*.py"))
+        for node in ast.walk(
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        )
+    )
+
+    offline_links = [
+        link for link in links if link[1].parent.name != "system_integration"
+    ]
+    smoke_links = [
+        link for link in links if link[1].parent.name == "system_integration"
+    ]
+    assert len(offline_links) == 23
+    assert len(smoke_links) == 4
 
     smoke_ids = {
         case["qase_id"] for case in cases if case["title"] in _SMOKE_CASE_TITLES
@@ -119,7 +148,8 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     assert len(smoke_ids) == 4
     paths_by_id = {case_id: path for case_id, path, _ in links}
     assert all(
-        paths_by_id[case_id].parent.name == "smoke" for case_id in smoke_ids
+        paths_by_id[case_id].parent.name == "system_integration"
+        for case_id in smoke_ids
     )
 
     event_discovery = next(

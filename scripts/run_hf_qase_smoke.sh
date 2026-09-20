@@ -22,4 +22,4 @@ export QASE_TESTOPS_SHOW_PUBLIC_REPORT_LINK=false
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec "$script_dir/run_hf_smoke_runtime.sh" \
-    pytest tests/smoke --run-smoke -m "qase and smoke" -q
+    pytest tests/system_integration --run-smoke -m "smoke and live" -q

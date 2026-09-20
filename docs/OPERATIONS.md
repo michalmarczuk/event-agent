@@ -20,7 +20,7 @@ pytest -q
 Run only the offline tests linked to the Qase catalog without publishing:
 
 ```bash
-pytest -m "qase and not smoke" -q
+pytest -m regression -q
 ```
 
 Publish the 23 linked offline regression cases manually outside CI with:
@@ -196,7 +196,7 @@ hf jobs run \
 ```
 
 `run_hf_smoke.sh` explicitly keeps Qase disabled. The dedicated Qase runner
-selects only `qase and smoke`, maps the token without printing it, and reuses
+selects only `smoke and live`, maps the token without printing it, and reuses
 the same Tailscale, SOCKS5, Xvfb, cleanup, and exit-code lifecycle. Supply every
 listed service setting and confirm `4 passed, 0 skipped`; missing service
 credentials can intentionally skip their corresponding smoke checks. Prefer

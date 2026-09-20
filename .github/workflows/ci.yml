@@ -41,9 +41,8 @@ jobs:
           pytest -q \
             --alluredir=allure-results \
             --clean-alluredir \
-            tests/unit \
-            tests/behavioral \
-            tests/integration
+            tests/component \
+            tests/component_integration
           pytest_exit_code=$?
           set -e
           echo "exit_code=${pytest_exit_code}" >> "${GITHUB_OUTPUT}"
