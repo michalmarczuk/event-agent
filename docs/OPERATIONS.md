@@ -134,8 +134,8 @@ Build the image locally:
 docker build -t event-agent:local .
 ```
 
-Build the separate smoke-test runtime when preparing an opt-in Hugging Face
-diagnostic job:
+Build the separate source-free test runtime when preparing black-box System
+Tests or an opt-in Hugging Face System Integration / live smoke job:
 
 ```bash
 docker build --target test-runtime -t event-agent:test-runtime .
@@ -218,17 +218,29 @@ Mount `/app/data` to persistent storage. Without that mount, `seen_events.json` 
 
 ## GitHub Actions, Allure, and GHCR
 
-One `CI` workflow runs on pushes to `main` and on manual dispatch, so GitHub
-shows the pipeline as one workflow run with this dependency graph:
+One `CI` workflow runs on pushes to `main` and on manual dispatch. The full
+test strategy and reporting model are in [Testing Strategy](TESTING.md); this
+operational view shows the deployed CI flow:
 
-```text
-Component + Component Integration Tests
-├── build and publish production image (passing tests only)
-├── build and publish test-runtime image (passing tests only)
-└── black-box System Tests
-    ├── local Qase report -> publish seven System Test results (non-blocking)
-    └── merge 183 Component/Component Integration and 7 System results
-        -> Allure report -> deploy GitHub Pages
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+flowchart TB
+    component["Component + Component Integration\n183 results"] --> production["Build Production Image"]
+    component --> test_image["Build Test Image"]
+    production --> system["System Tests\n7 results"]
+    test_image --> system
+    component --> allure["Allure Report\n190 CI results"]
+    system --> allure
+    allure --> pages["Deploy Pages"]
+    system --> local["Local Qase report"]
+    local --> publish["Publish System Results to Qase\nnon-blocking"]
+
+    classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef report fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
+    class component ci;
+    class production,test_image,system image;
+    class allure,pages,local,publish report;
 ```
 
 The Component + Component Integration job uploads `allure-results` before

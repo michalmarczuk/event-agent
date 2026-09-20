@@ -2,6 +2,7 @@
 .env
 .DS_Store
 __pycache__/
+*.py[cod]
 .pytest_cache/
 allure-results/
 allure-report/

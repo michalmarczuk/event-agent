@@ -10,11 +10,25 @@ prices, delivery, and history.
 
 ## How it works
 
-<p align="center">
-  <img src="docs/images/system-architecture-blueprint.png" width="900" alt="Event Agent system architecture">
-</p>
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+flowchart LR
+    discovery["Ticketmaster Discovery API"] --> filter["Deterministic discovery and filtering"]
+    filter --> agent["OpenAI selection"]
+    agent --> final["Final recommendations"]
+    final --> enrich["Deterministic Camoufox price enrichment"]
+    enrich --> telegram["Telegram delivery"]
+    telegram --> history["seen_events.json"]
 
-The architecture separates agent selection from deterministic enrichment and delivery.
+    classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef deterministic fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
+    class discovery external;
+    class agent ai;
+    class filter,final,enrich,telegram,history deterministic;
+```
+
+The architecture separates probabilistic event selection from deterministic filtering, pricing, delivery, and persistence. See the [full architecture](docs/architecture.md) for the daily-run and Hugging Face runtime diagrams.
 
 ### Daily execution
 
@@ -27,10 +41,6 @@ Hugging Face Jobs / Docker -> daily.py -> load /app/data/seen_events.json
   -> deterministic Telegram HTML -> Telegram API
   -> save recommended IDs to /app/data/seen_events.json after successful delivery
 ```
-
-<p align="center">
-  <img src="docs/images/daily-run-flow-blueprint.png" width="900" alt="Daily event-agent flow">
-</p>
 
 The daily flow persists recommended IDs only after Telegram delivery succeeds.
 
@@ -64,11 +74,21 @@ between jobs.
   System Integration scenarios.
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
 flowchart TB
     component["Component + Component Integration Testing\nGitHub runner"] --> allure["Allure / GitHub Pages"]
-    system["System Testing\nproduction container + fake services"] --> allure
-    system --> qase["Qase System cases"]
-    live["System Integration Testing\nHugging Face + live services"] --> qase_live["Qase live cases + HF logs"]
+    system["System Testing\nproduction image + fake services"] --> allure
+    system --> qase["Qase System"]
+    live["System Integration Testing\nHugging Face + live services"] --> qase_live["Qase + HF logs"]
+
+    classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef lime fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
+    classDef report fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
+    class component ci;
+    class system violet;
+    class live lime;
+    class allure,qase,qase_live report;
 ```
 
 See the [testing strategy](docs/TESTING.md) for levels, markers, black-box
@@ -128,11 +148,7 @@ credentials; the HF wrapper additionally needs `TAILSCALE_AUTHKEY` and
 [configuration template](.env.example) and [operations runbook](docs/OPERATIONS.md)
 for settings and the HF Jobs command.
 
-<p align="center">
-  <img src="docs/images/hf-runtime-networking-blueprint.png" width="900" alt="Hugging Face runtime networking">
-</p>
-
-The runtime routes Camoufox traffic through Tailscale and the Raspberry Pi exit node.
+Only Camoufox traffic is routed through Tailscale and the Raspberry Pi exit node; the [full runtime diagram](docs/architecture.md#deployment-status) shows the boundary.
 
 ## More detail
 

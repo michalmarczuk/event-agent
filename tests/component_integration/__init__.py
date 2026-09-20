@@ -1,1 +1,1 @@
-"""Integration test modules."""
+"""Component Integration Testing modules."""

@@ -24,39 +24,117 @@ candidates to the agent.
 
 ## System Overview
 
-<p align="center">
-  <img src="images/system-architecture-blueprint.png" width="900" alt="Event Agent system architecture">
-</p>
+The application keeps probabilistic selection separate from deterministic
+filtering, price enrichment, delivery, and persistence.
 
-The diagram shows the boundary between agent selection and deterministic
-delivery.
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+flowchart LR
+    subgraph providers["External Providers"]
+        tm_api["Ticketmaster Discovery API"]
+        openai["OpenAI Responses API"]
+        tm_web["Ticketmaster WWW"]
+        telegram_api["Telegram Bot API"]
+    end
+
+    subgraph event_agent["Event Agent"]
+        discovery["Discovery + pagination"]
+        filtering["Canceled + seen filtering"]
+        selection["OpenAI grounded selection"]
+        final["Final recommendations"]
+        enrichment["Deterministic price enrichment"]
+        camoufox["Camoufox final-only scraping"]
+        delivery["Telegram formatting + delivery"]
+    end
+
+    subgraph state["Persistent State"]
+        history["seen_events.json"]
+    end
+
+    subgraph observability["Observability"]
+        logs["ECS stdout logs"]
+        otlp["Optional OTLP/HTTP log export"]
+        elastic["Elastic Managed OTLP/HTTP"]
+    end
+
+    tm_api --> discovery --> filtering --> selection
+    openai <--> selection
+    selection --> final --> enrichment --> delivery
+    enrichment --> camoufox --> tm_web
+    delivery --> telegram_api
+    history --> filtering
+    delivery -->|"successful delivery only"| history
+    discovery --> logs
+    selection --> logs
+    enrichment --> logs
+    delivery --> logs --> otlp --> elastic
+
+    classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef deterministic fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
+    classDef observability fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
+    class tm_api,openai,tm_web,telegram_api external;
+    class selection ai;
+    class discovery,filtering,final,enrichment,camoufox,delivery,history deterministic;
+    class logs,otlp,elastic observability;
+```
+
+Only the OpenAI selection step is probabilistic; provider data, price handling,
+delivery, history, and log export are deterministic application behavior.
 
 ## End-to-end Flow
 
-```text
-Hugging Face Scheduled Job
-    -> run_hf.sh starts Tailscale userspace networking
-    -> daily.main()
-    -> load seen recommendation IDs
-    -> OpenAI Responses API agent loop
-         <-> Ticketmaster Discovery API tools
-              -> paginate up to five API pages; filter seen and canceled events
-    -> up to ten grounded, model-visible candidates per search
-    -> OpenAI selects and validates recommendations
-    -> Camoufox enriches final Ticketmaster recommendations
-         -> local SOCKS5 endpoint
-         -> Raspberry Pi exit node
-         -> Ticketmaster event pages via home-network egress
-    -> deterministic Telegram HTML formatting
-    -> Telegram delivery
-    -> atomically persist recommended IDs after successful delivery
+One `daily.py` execution branches explicitly when discovery yields no eligible
+new events; it otherwise delivers only grounded final recommendations.
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+flowchart TB
+    start(["daily.py"]) --> load["Load seen history"]
+
+    subgraph discovery["Discovery"]
+        search["Ticketmaster discovery + pagination"] --> filter["Filter canceled, seen, and duplicates"]
+        filter --> eligible{"Eligible candidates?"}
+    end
+
+    subgraph selection["Selection"]
+        agent["Grounded OpenAI selection"] --> recommendations["Final recommendations"]
+    end
+
+    subgraph delivery["Deterministic Delivery"]
+        enrich["Camoufox price enrichment"] --> format["Format Telegram HTML"] --> send["Telegram delivery"]
+        no_events["Brak nowych wydarzeń."] --> no_events_send["Telegram notification"]
+    end
+
+    subgraph state["State & Observability"]
+        persist["Persist delivered event IDs"]
+        success["daily_run success log"]
+        no_events_success["daily_run success log"]
+    end
+
+    load --> search
+    eligible -->|"yes"| agent
+    eligible -->|"no"| no_events
+    recommendations --> enrich
+    enrich -->|"price unavailable: preserve Admission"| format
+    send -->|"success only"| persist --> success
+    no_events_send --> no_events_success
+
+    agent -. "critical failure: no partial history" .-> stop(["Exit with failure"])
+    send -. "critical failure: no partial history" .-> stop
+
+    classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef deterministic fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
+    classDef observability fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
+    class start,load,search,filter,eligible external;
+    class agent,recommendations ai;
+    class enrich,format,send,no_events,no_events_send,persist deterministic;
+    class success,no_events_success observability;
 ```
 
-<p align="center">
-  <img src="images/daily-run-flow-blueprint.png" width="900" alt="Daily event-agent flow">
-</p>
-
-The flow keeps history persistence after successful Telegram delivery.
+Price scraping is non-fatal and missing price data is never treated as free;
+history changes only after a successful recommendation delivery.
 
 ## Module Responsibilities
 
@@ -319,12 +397,62 @@ GitHub Actions runs tests and publishes the image to GHCR. Hugging Face Jobs is
 the intended scheduler, and a Hugging Face Storage Bucket provides `/app/data`.
 See [Operations](OPERATIONS.md) for the existing runbook.
 
-<p align="center">
-  <img src="images/hf-runtime-networking-blueprint.png" width="900" alt="Hugging Face runtime networking">
-</p>
+The Hugging Face wrapper owns private browser egress while the application
+retains ordinary outbound connections for its APIs and logs.
 
-The runtime routes Camoufox through a local SOCKS5 endpoint and Raspberry Pi
-exit node.
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+flowchart LR
+    subgraph build["Build & Registry"]
+        gha["GitHub Actions"] --> ghcr["GHCR production image"]
+        gha --> ghcr_tests["GHCR test image"]
+    end
+
+    subgraph hf["Hugging Face Runtime"]
+        job["Hugging Face Job"] --> wrapper["run_hf.sh"]
+        authkey["TAILSCALE_AUTHKEY\nruntime secret"] --> wrapper
+        wrapper --> app["daily.py + Camoufox"]
+        wrapper --> tailscale["Tailscale userspace"]
+        tailscale --> socks["SOCKS5\n127.0.0.1:1055"]
+        storage["/app/data"] <--> app
+    end
+
+    subgraph egress["Private Egress"]
+        socks --> exit_node["Raspberry Pi\nTailscale exit node"]
+        private["No public listener"] --- exit_node
+    end
+
+    subgraph external["External Services"]
+        tm_web["Ticketmaster WWW"]
+        tm_api["Ticketmaster Discovery API"]
+        openai["OpenAI Responses API"]
+        telegram["Telegram Bot API"]
+    end
+
+    subgraph observability["Observability"]
+        elastic["Elastic Managed OTLP/HTTP\nlogs only"]
+    end
+
+    ghcr --> job
+    app -->|"Camoufox only"| socks
+    exit_node --> tm_web
+    app --> tm_api
+    app --> openai
+    app --> telegram
+    app -->|"optional logs"| elastic
+
+    classDef build fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
+    classDef runtime fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
+    classDef success fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
+    classDef observability fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
+    class gha,ghcr,ghcr_tests build;
+    class job,wrapper,authkey,app,tailscale,socks,storage runtime;
+    class exit_node,private,tm_web,tm_api,openai,telegram success;
+    class elastic observability;
+```
+
+Only Camoufox receives `SCRAPER_PROXY_URL`; Ticketmaster Discovery, OpenAI,
+Telegram, and optional OTLP log export use normal container networking.
 
 The container has two explicit startup paths:
 

@@ -32,7 +32,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-test.txt
 
-      - name: Run offline tests with Allure
+      - name: Run Component + Component Integration tests with Allure
         id: pytest
         env:
           QASE_MODE: off
@@ -238,7 +238,7 @@ jobs:
       id-token: write
 
     steps:
-      - name: Download offline and system Allure results
+      - name: Download Component + Component Integration and System Allure results
         uses: actions/download-artifact@v4
         with:
           pattern: allure-results*
