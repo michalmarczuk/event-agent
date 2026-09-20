@@ -28,23 +28,23 @@ The application keeps probabilistic selection separate from deterministic
 filtering, price enrichment, delivery, and persistence.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
     subgraph providers["External Providers"]
-        tm_api["Ticketmaster Discovery API"]
-        openai["OpenAI Responses API"]
-        tm_web["Ticketmaster WWW"]
-        telegram_api["Telegram Bot API"]
+        tm_api["Ticketmaster API"]
+        openai["OpenAI API"]
+        tm_web["Ticketmaster web"]
+        telegram_api["Telegram API"]
     end
 
     subgraph event_agent["Event Agent"]
-        discovery["Discovery + pagination"]
-        filtering["Canceled + seen filtering"]
-        selection["OpenAI grounded selection"]
-        final["Final recommendations"]
-        enrichment["Deterministic price enrichment"]
-        camoufox["Camoufox final-only scraping"]
-        delivery["Telegram formatting + delivery"]
+        discovery["Discovery + pages"]
+        filtering["Filter canceled + seen"]
+        selection["Grounded selection"]
+        final["Recommendations"]
+        enrichment["Price enrichment"]
+        camoufox["Camoufox final-only"]
+        delivery["Telegram delivery"]
     end
 
     subgraph state["Persistent State"]
@@ -52,9 +52,9 @@ flowchart LR
     end
 
     subgraph observability["Observability"]
-        logs["ECS stdout logs"]
-        otlp["Optional OTLP/HTTP log export"]
-        elastic["Elastic Managed OTLP/HTTP"]
+        logs["ECS logs"]
+        otlp["Optional OTLP logs"]
+        elastic["Elastic logs"]
     end
 
     tm_api --> discovery --> filtering --> selection
@@ -88,40 +88,40 @@ One `daily.py` execution branches explicitly when discovery yields no eligible
 new events; it otherwise delivers only grounded final recommendations.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    start(["daily.py"]) --> load["Load seen history"]
+    start(["daily.py"]) --> load["Load history"]
 
     subgraph discovery["Discovery"]
-        search["Ticketmaster discovery + pagination"] --> filter["Filter canceled, seen, and duplicates"]
+        search["Discovery + pages"] --> filter["Filter canceled + seen"]
         filter --> eligible{"Eligible candidates?"}
     end
 
     subgraph selection["Selection"]
-        agent["Grounded OpenAI selection"] --> recommendations["Final recommendations"]
+        agent["OpenAI selection"] --> recommendations["Recommendations"]
     end
 
     subgraph delivery["Deterministic Delivery"]
-        enrich["Camoufox price enrichment"] --> format["Format Telegram HTML"] --> send["Telegram delivery"]
-        no_events["Brak nowych wydarzeń."] --> no_events_send["Telegram notification"]
+        enrich["Camoufox pricing"] --> format["Format Telegram"] --> send["Deliver Telegram"]
+        no_events["Brak nowych wydarzeń."] --> no_events_send["Telegram notice"]
     end
 
     subgraph state["State & Observability"]
-        persist["Persist delivered event IDs"]
-        success["daily_run success log"]
-        no_events_success["daily_run success log"]
+        persist["Save delivered IDs"]
+        success["Success log"]
+        no_events_success["Success log"]
     end
 
     load --> search
     eligible -->|"yes"| agent
     eligible -->|"no"| no_events
     recommendations --> enrich
-    enrich -->|"price unavailable: preserve Admission"| format
+    enrich -->|"no price: preserve admission"| format
     send -->|"success only"| persist --> success
     no_events_send --> no_events_success
 
-    agent -. "critical failure: no partial history" .-> stop(["Exit with failure"])
-    send -. "critical failure: no partial history" .-> stop
+    agent -. "failure: no partial history" .-> stop(["Exit with failure"])
+    send -. "failure: no partial history" .-> stop
 
     classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -401,16 +401,16 @@ The Hugging Face wrapper owns private browser egress while the application
 retains ordinary outbound connections for its APIs and logs.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
     subgraph build["Build & Registry"]
-        gha["GitHub Actions"] --> ghcr["GHCR production image"]
-        gha --> ghcr_tests["GHCR test image"]
+        gha["GitHub Actions"] --> ghcr["GHCR production"]
+        gha --> ghcr_tests["GHCR tests"]
     end
 
     subgraph hf["Hugging Face Runtime"]
-        job["Hugging Face Job"] --> wrapper["run_hf.sh"]
-        authkey["TAILSCALE_AUTHKEY\nruntime secret"] --> wrapper
+        job["HF Job"] --> wrapper["run_hf.sh"]
+        authkey["TAILSCALE_AUTHKEY\nsecret"] --> wrapper
         wrapper --> app["daily.py + Camoufox"]
         wrapper --> tailscale["Tailscale userspace"]
         tailscale --> socks["SOCKS5\n127.0.0.1:1055"]
@@ -418,19 +418,19 @@ flowchart LR
     end
 
     subgraph egress["Private Egress"]
-        socks --> exit_node["Raspberry Pi\nTailscale exit node"]
+        socks --> exit_node["Raspberry Pi\nexit node"]
         private["No public listener"] --- exit_node
     end
 
     subgraph external["External Services"]
         tm_web["Ticketmaster WWW"]
-        tm_api["Ticketmaster Discovery API"]
-        openai["OpenAI Responses API"]
-        telegram["Telegram Bot API"]
+        tm_api["Ticketmaster API"]
+        openai["OpenAI API"]
+        telegram["Telegram API"]
     end
 
     subgraph observability["Observability"]
-        elastic["Elastic Managed OTLP/HTTP\nlogs only"]
+        elastic["Elastic logs only"]
     end
 
     ghcr --> job

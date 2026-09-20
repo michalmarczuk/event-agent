@@ -36,22 +36,22 @@ traceability from a representative pytest scenario to a Qase case.
 ## Execution Model
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
     component["Component Testing\ntests/component"] --> runner["GitHub runner\npytest"]
     component_integration["Component Integration Testing\ntests/component_integration"] --> runner
-    runner --> allure["Allure\n183 results"]
+    runner --> allure["Allure\n183"]
 
     system["System Testing\ntests/system"] --> sut["event-agent\nproduction image"]
     fake["event-agent-tests\nfake services"] --> sut
-    sut --> artifacts["Artifacts\nexit code · ECS logs · journal · data"]
-    artifacts --> assertions["event-agent-tests\nblack-box assertions"]
+    sut --> artifacts["Artifacts\nexit · logs · journal · data"]
+    artifacts --> assertions["event-agent-tests\nassertions"]
     assertions --> allure
-    assertions --> qase_local["Local Qase report"]
-    qase_local --> qase["Qase\n7 System cases"]
+    assertions --> qase_local["Local Qase"]
+    qase_local --> qase["Qase\n7 cases"]
 
-    system_integration["System Integration Testing\ntests/system_integration"] --> hf["Hugging Face\nlive external services"]
-    hf --> qase_live["Qase + HF logs\n4 live cases"]
+    system_integration["System Integration Testing\ntests/system_integration"] --> hf["HF\nlive services"]
+    hf --> qase_live["Qase + logs\n4 cases"]
 
     classDef github fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -76,14 +76,14 @@ two images on a private Docker network; the assertion container itself has no
 network access.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
-    fake["event-agent-tests\nfake external services"] --> network["Private Docker network"]
+    fake["event-agent-tests\nfake services"] --> network["Private Docker network"]
     network --> sut["event-agent\nproduction container"]
-    sut --> artifacts["Artifacts\nexit code · ECS logs\nrequest journal · /app/data"]
-    artifacts --> assertions["event-agent-tests\nassertions (--network none)"]
-    assertions --> allure["Allure\n7 System results"]
-    assertions --> qase["Local Qase report\n7 System cases"]
+    sut --> artifacts["Artifacts\nexit · logs · journal · data"]
+    artifacts --> assertions["event-agent-tests\nassertions"]
+    assertions --> allure["Allure\n7 results"]
+    assertions --> qase["Local Qase\n7 cases"]
 
     classDef lime fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
     classDef boundary fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
@@ -110,21 +110,21 @@ The seven deterministic scenarios cover:
 ## Reporting and Traceability
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component + Component Integration\n183 results"] --> production["Build Production Image"]
-    component --> test_image["Build Test Image"]
-    production --> system["System Tests\n7 black-box results"]
+    component["Component + integration\n183"] --> production["Build production"]
+    component --> test_image["Build test image"]
+    production --> system["System tests\n7 black-box"]
     test_image --> system
-    component --> allure["Allure Report\n190 CI results"]
+    component --> allure["Allure report\n190 results"]
     system --> allure
     allure --> pages["Deploy Pages"]
 
-    system --> local["Local Qase report"]
-    local --> publish["Publish System Results to Qase\nnon-blocking"]
-    publish --> qase["Qase System\nIDs 28–34"]
+    system --> local["Local Qase"]
+    local --> publish["Publish Qase\nnon-blocking"]
+    publish --> qase["Qase System\n28–34"]
 
-    hf["HF Live Smoke\n4 System Integration checks"] --> qase_live["Qase + HF logs\nIDs 24–27"]
+    hf["HF live smoke\n4 checks"] --> qase_live["Qase + logs\n24–27"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;

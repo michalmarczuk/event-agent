@@ -11,14 +11,14 @@ prices, delivery, and history.
 ## How it works
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
-    discovery["Ticketmaster Discovery API"] --> filter["Deterministic discovery and filtering"]
+    discovery["Ticketmaster API"] --> filter["Filter canceled + seen"]
     filter --> agent["OpenAI selection"]
-    agent --> final["Final recommendations"]
-    final --> enrich["Deterministic Camoufox price enrichment"]
-    enrich --> telegram["Telegram delivery"]
-    telegram --> history["seen_events.json"]
+    agent --> final["Recommendations"]
+    final --> enrich["Camoufox pricing"]
+    enrich --> telegram["Telegram"]
+    telegram --> history["History"]
 
     classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -74,12 +74,12 @@ between jobs.
   System Integration scenarios.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component + Component Integration Testing\nGitHub runner"] --> allure["Allure / GitHub Pages"]
-    system["System Testing\nproduction image + fake services"] --> allure
-    system --> qase["Qase System"]
-    live["System Integration Testing\nHugging Face + live services"] --> qase_live["Qase + HF logs"]
+    component["Component tests\nrunner"] --> allure["Allure / Pages"]
+    system["System tests\nproduction image"] --> allure
+    system --> qase["Qase"]
+    live["Live smoke\nHF"] --> qase_live["Qase + logs"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;

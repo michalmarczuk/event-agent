@@ -223,17 +223,17 @@ test strategy and reporting model are in [Testing Strategy](TESTING.md); this
 operational view shows the deployed CI flow:
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component + Component Integration\n183 results"] --> production["Build Production Image"]
-    component --> test_image["Build Test Image"]
-    production --> system["System Tests\n7 results"]
+    component["Component + integration\n183"] --> production["Build production"]
+    component --> test_image["Build test image"]
+    production --> system["System tests\n7"]
     test_image --> system
-    component --> allure["Allure Report\n190 CI results"]
+    component --> allure["Allure report\n190"]
     system --> allure
     allure --> pages["Deploy Pages"]
-    system --> local["Local Qase report"]
-    local --> publish["Publish System Results to Qase\nnon-blocking"]
+    system --> local["Local Qase"]
+    local --> publish["Publish Qase\nnon-blocking"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
