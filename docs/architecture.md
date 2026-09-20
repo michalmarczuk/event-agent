@@ -29,22 +29,22 @@ filtering, price enrichment, delivery, and persistence.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
-flowchart LR
+flowchart TB
     subgraph providers["External Providers"]
-        tm_api["Ticketmaster API"]
-        openai["OpenAI API"]
-        tm_web["Ticketmaster web"]
-        telegram_api["Telegram API"]
+        tm_api["Ticketmaster<br/>API"]
+        openai["OpenAI<br/>API"]
+        tm_web["Ticketmaster<br/>web"]
+        telegram_api["Telegram<br/>API"]
     end
 
     subgraph event_agent["Event Agent"]
-        discovery["Discovery + pages"]
-        filtering["Filter canceled + seen"]
-        selection["Grounded selection"]
+        discovery["Discovery +<br/>pages"]
+        filtering["Filter canceled<br/>+ seen"]
+        selection["Grounded<br/>selection"]
         final["Recommendations"]
-        enrichment["Price enrichment"]
-        camoufox["Camoufox final-only"]
-        delivery["Telegram delivery"]
+        enrichment["Price<br/>enrichment"]
+        camoufox["Camoufox<br/>final-only"]
+        delivery["Telegram<br/>delivery"]
     end
 
     subgraph state["Persistent State"]
@@ -52,9 +52,9 @@ flowchart LR
     end
 
     subgraph observability["Observability"]
-        logs["ECS logs"]
-        otlp["Optional OTLP logs"]
-        elastic["Elastic logs"]
+        logs["ECS<br/>logs"]
+        otlp["Optional OTLP<br/>logs"]
+        elastic["Elastic<br/>logs"]
     end
 
     tm_api --> discovery --> filtering --> selection
@@ -93,21 +93,21 @@ flowchart TB
     start(["daily.py"]) --> load["Load history"]
 
     subgraph discovery["Discovery"]
-        search["Discovery + pages"] --> filter["Filter canceled + seen"]
+        search["Discovery +<br/>pages"] --> filter["Filter canceled<br/>+ seen"]
         filter --> eligible{"Eligible candidates?"}
     end
 
     subgraph selection["Selection"]
-        agent["OpenAI selection"] --> recommendations["Recommendations"]
+        agent["OpenAI<br/>selection"] --> recommendations["Recommendations"]
     end
 
     subgraph delivery["Deterministic Delivery"]
-        enrich["Camoufox pricing"] --> format["Format Telegram"] --> send["Deliver Telegram"]
-        no_events["Brak nowych wydarzeń."] --> no_events_send["Telegram notice"]
+        enrich["Camoufox<br/>pricing"] --> format["Format<br/>Telegram"] --> send["Deliver<br/>Telegram"]
+        no_events["Brak nowych<br/>wydarzeń."] --> no_events_send["Telegram<br/>notice"]
     end
 
     subgraph state["State & Observability"]
-        persist["Save delivered IDs"]
+        persist["Save delivered<br/>IDs"]
         success["Success log"]
         no_events_success["Success log"]
     end
@@ -423,14 +423,14 @@ flowchart LR
     end
 
     subgraph external["External Services"]
-        tm_web["Ticketmaster WWW"]
-        tm_api["Ticketmaster API"]
-        openai["OpenAI API"]
-        telegram["Telegram API"]
+        tm_web["Ticketmaster<br/>WWW"]
+        tm_api["Ticketmaster<br/>API"]
+        openai["OpenAI<br/>API"]
+        telegram["Telegram<br/>API"]
     end
 
     subgraph observability["Observability"]
-        elastic["Elastic logs only"]
+        elastic["Elastic<br/>logs only"]
     end
 
     ghcr --> job

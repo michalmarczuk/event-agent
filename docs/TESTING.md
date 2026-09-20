@@ -38,11 +38,11 @@ traceability from a representative pytest scenario to a Qase case.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component Testing\ntests/component"] --> runner["GitHub runner\npytest"]
-    component_integration["Component Integration Testing\ntests/component_integration"] --> runner
+    component["Component<br/>Testing\ntests/component"] --> runner["GitHub runner\npytest"]
+    component_integration["Component Integration<br/>Testing\ntests/component_integration"] --> runner
     runner --> allure["Allure\n183"]
 
-    system["System Testing\ntests/system"] --> sut["event-agent\nproduction image"]
+    system["System<br/>Testing\ntests/system"] --> sut["event-agent\nproduction<br/>image"]
     fake["event-agent-tests\nfake services"] --> sut
     sut --> artifacts["Artifacts\nexit · logs · journal · data"]
     artifacts --> assertions["event-agent-tests\nassertions"]
@@ -50,7 +50,7 @@ flowchart TB
     assertions --> qase_local["Local Qase"]
     qase_local --> qase["Qase\n7 cases"]
 
-    system_integration["System Integration Testing\ntests/system_integration"] --> hf["HF\nlive services"]
+    system_integration["System Integration<br/>Testing\ntests/system_integration"] --> hf["HF\nlive services"]
     hf --> qase_live["Qase + logs\n4 cases"]
 
     classDef github fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
@@ -78,8 +78,8 @@ network access.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart LR
-    fake["event-agent-tests\nfake services"] --> network["Private Docker network"]
-    network --> sut["event-agent\nproduction container"]
+    fake["event-agent-tests\nfake services"] --> network["Private Docker<br/>network"]
+    network --> sut["event-agent\nproduction<br/>container"]
     sut --> artifacts["Artifacts\nexit · logs · journal · data"]
     artifacts --> assertions["event-agent-tests\nassertions"]
     assertions --> allure["Allure\n7 results"]
@@ -112,8 +112,8 @@ The seven deterministic scenarios cover:
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component + integration\n183"] --> production["Build production"]
-    component --> test_image["Build test image"]
+    component["Component +<br/>Component Integration\n183"] --> production["Build<br/>production"]
+    component --> test_image["Build<br/>test image"]
     production --> system["System tests\n7 black-box"]
     test_image --> system
     component --> allure["Allure report\n190 results"]
@@ -121,7 +121,7 @@ flowchart TB
     allure --> pages["Deploy Pages"]
 
     system --> local["Local Qase"]
-    local --> publish["Publish Qase\nnon-blocking"]
+    local --> publish["Publish System<br/>Results to Qase"]
     publish --> qase["Qase System\n28–34"]
 
     hf["HF live smoke\n4 checks"] --> qase_live["Qase + logs\n24–27"]

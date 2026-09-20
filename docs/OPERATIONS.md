@@ -225,15 +225,15 @@ operational view shows the deployed CI flow:
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component + integration\n183"] --> production["Build production"]
-    component --> test_image["Build test image"]
+    component["Component +<br/>Component Integration\n183"] --> production["Build<br/>production"]
+    component --> test_image["Build<br/>test image"]
     production --> system["System tests\n7"]
     test_image --> system
     component --> allure["Allure report\n190"]
     system --> allure
     allure --> pages["Deploy Pages"]
     system --> local["Local Qase"]
-    local --> publish["Publish Qase\nnon-blocking"]
+    local --> publish["Publish System<br/>Results to Qase"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;

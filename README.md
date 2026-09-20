@@ -1,9 +1,8 @@
 # Event Agent
 
-Event Agent is a scheduled Python 3.13 job that finds nearby Ticketmaster events,
-selects a short list with an OpenAI agent, adds available ticket prices, and sends
-the result to Telegram. It replaces manual event searching and avoids repeating
-recommendations already delivered.
+Event Agent automatically finds nearby events, uses AI to select relevant ones,
+adds deterministic price data to the selected events, and sends a digest through
+Telegram.
 
 The LLM selects and explains events; deterministic code controls event IDs,
 prices, delivery, and history.
@@ -12,23 +11,21 @@ prices, delivery, and history.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
-flowchart LR
-    discovery["Ticketmaster API"] --> filter["Filter canceled + seen"]
-    filter --> agent["OpenAI selection"]
-    agent --> final["Recommendations"]
-    final --> enrich["Camoufox pricing"]
-    enrich --> telegram["Telegram"]
-    telegram --> history["History"]
+flowchart TB
+    discover["Discover events<br/>Ticketmaster"] --> select["AI selects<br/>relevant events"]
+    select --> enrich["Enrich selected events<br/>with real price data"]
+    enrich --> send["Send Telegram<br/>digest"]
+    send --> remember["Remember delivered<br/>events"]
 
     classDef external fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
     classDef deterministic fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
-    class discovery external;
-    class agent ai;
-    class filter,final,enrich,telegram,history deterministic;
+    class discover external;
+    class select ai;
+    class enrich,send,remember deterministic;
 ```
 
-The architecture separates probabilistic event selection from deterministic filtering, pricing, delivery, and persistence. See the [full architecture](docs/architecture.md) for the daily-run and Hugging Face runtime diagrams.
+See the [full architecture →](docs/architecture.md) for the technical and runtime diagrams.
 
 ### Daily execution
 
