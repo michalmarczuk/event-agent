@@ -17,6 +17,7 @@ CASES_FILE = Path(__file__).resolve().parents[1] / "tests" / "qase_cases.yaml"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT = 15
 PRIORITIES = {"undefined": 0, "high": 1, "medium": 2, "low": 3}
+CASE_STATUSES = {"active": 0, "draft": 1, "deprecated": 2}
 SUMMARY_KEYS = ("suites_created", "cases_created", "cases_updated", "cases_unchanged")
 _ERROR_DETAIL_LIMIT = 240
 _ERROR_PART_LIMIT = 160
@@ -124,6 +125,9 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
         suite_names.add(name)
         if not isinstance(suite.get("cases"), list):
             raise QaseSyncError(f"Suite {name!r} needs a cases list")
+        suite_status = suite.get("status", "active")
+        if not isinstance(suite_status, str) or suite_status not in CASE_STATUSES:
+            raise QaseSyncError(f"Suite {name!r} has an unsupported status")
 
         titles = set()
         for case in suite["cases"]:
@@ -140,6 +144,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
                 raise QaseSyncError(f"Case {title!r} has an unsupported priority")
             if not isinstance(case.get("automated"), bool):
                 raise QaseSyncError(f"Case {title!r} needs a boolean automated value")
+            status = case.get("status", suite_status)
+            if not isinstance(status, str) or status not in CASE_STATUSES:
+                raise QaseSyncError(f"Case {title!r} has an unsupported status")
+            case["status"] = status
             if "qase_id" in case:
                 qase_id = case["qase_id"]
                 if (
@@ -250,6 +258,7 @@ def _case_payload(case: dict[str, Any], suite_id: int) -> dict[str, Any]:
         "description": case["description"],
         "preconditions": case["preconditions"],
         "priority": PRIORITIES[case["priority"]],
+        "status": CASE_STATUSES[case["status"]],
         "isManual": int(not case["automated"]),
         "isToBeAutomated": 0,
         "steps_type": "classic",
@@ -268,6 +277,14 @@ def _normalized_flag(value: object) -> int | None:
     return None
 
 
+def _normalized_status(value: object) -> int | None:
+    if type(value) is int and value in CASE_STATUSES.values():
+        return value
+    if isinstance(value, str):
+        return CASE_STATUSES.get(value.casefold())
+    return None
+
+
 def _case_differences(existing: dict[str, Any], desired: dict[str, Any]) -> list[str]:
     differences = []
     if existing.get("title") != desired["title"]:
@@ -280,6 +297,8 @@ def _case_differences(existing: dict[str, Any], desired: dict[str, Any]) -> list
             differences.append(f"priority: {priority} -> {desired['priority']}")
         else:
             differences.append("priority: changed")
+    if _normalized_status(existing.get("status")) != desired["status"]:
+        differences.append("status: changed")
     manual = _normalized_flag(existing.get("isManual"))
     to_be_automated = _normalized_flag(existing.get("isToBeAutomated"))
     if manual != desired["isManual"] or to_be_automated != desired["isToBeAutomated"]:
@@ -307,9 +326,7 @@ def _id(entity: dict[str, Any], kind: str) -> int:
     return value
 
 
-def _validate_case_reference(
-    detail: dict[str, Any], case: dict[str, Any], suite_id: int, suite_name: str
-) -> None:
+def _validate_case_reference(detail: dict[str, Any], case: dict[str, Any]) -> None:
     case_id = case["qase_id"]
     resolved_id = _id(detail, "case")
     if resolved_id != case_id:
@@ -321,13 +338,6 @@ def _validate_case_reference(
             f"Qase case ID {case_id} resolves to a different title; "
             f"expected {case['title']!r}"
         )
-    if detail.get("suite_id") != suite_id:
-        raise QaseSyncError(
-            f"Qase case ID {case_id} resolves to a different suite; "
-            f"expected {suite_name!r} (ID {suite_id})"
-        )
-
-
 def sync_cases(
     session: requests.Session, suites: list[dict[str, Any]], *, dry_run: bool = False
 ) -> dict[str, int]:
@@ -340,14 +350,14 @@ def sync_cases(
     for suite in suites:
         existing_suite = existing_suites.get(suite["name"])
         if existing_suite is None:
-            if any("qase_id" in case for case in suite["cases"]):
-                raise QaseSyncError(
-                    f"Qase suite {suite['name']!r} is missing but its cases "
-                    "declare qase_id references"
-                )
             summary["suites_created"] += 1
             if dry_run:
-                summary["cases_created"] += len(suite["cases"])
+                summary["cases_created"] += sum(
+                    "qase_id" not in case for case in suite["cases"]
+                )
+                summary["cases_updated"] += sum(
+                    "qase_id" in case for case in suite["cases"]
+                )
                 continue
             existing_suite = _request(
                 session, "POST", f"/suite/{PROJECT_CODE}", payload={"title": suite["name"]}
@@ -376,7 +386,7 @@ def sync_cases(
                         f"Cannot validate Qase case ID {referenced_id} for "
                         f"{suite['name']!r} / {case['title']!r}: {error}"
                     ) from None
-                _validate_case_reference(detail, case, suite_id, suite["name"])
+                _validate_case_reference(detail, case)
                 case_id = referenced_id
             else:
                 existing_case = existing_cases.get(case["title"])

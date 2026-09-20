@@ -19,6 +19,10 @@ def recommendation(category="music", **overrides):
     return Recommendation(**values)
 
 
+def test_format_telegram_message_reports_no_new_events():
+    assert format_telegram_message([], "Tychy", 50, 30) == "Brak nowych wydarzeń."
+
+
 def test_format_telegram_message_with_complete_data():
     message = format_telegram_message([recommendation()], "Tychy", 50, 30)
 

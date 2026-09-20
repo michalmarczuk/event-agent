@@ -59,6 +59,9 @@ def format_telegram_message(
     days_ahead: int,
 ) -> str:
     """Format recommendations as deterministic Telegram HTML."""
+    if not recommendations:
+        return "Brak nowych wydarzeń."
+
     location_name = "Tychów" if base_location_name == "Tychy" else base_location_name
     lines = [
         "🎯 <b>Event Agent</b>",

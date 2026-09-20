@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-from qase.pytest import qase
 
 from src.models import Admission
 from src.tools import ticketmaster_price_scraper as scraper_module
@@ -16,7 +15,7 @@ from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper
         pytest.param(
             "socks5://127.0.0.1:1055",
             {"proxy": {"server": "socks5://127.0.0.1:1055"}},
-            marks=(qase.id(23), pytest.mark.regression),
+            marks=pytest.mark.regression,
         ),
     ],
 )

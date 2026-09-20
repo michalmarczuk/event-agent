@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
-from qase.pytest import qase
 
 import src.logging_config as logging_config
 from src.config import ElasticLoggingSettings
@@ -55,7 +54,6 @@ def _configure_complete_elastic(monkeypatch, exporter):
     return exporter_factory
 
 
-@qase.id(20)
 @pytest.mark.regression
 def test_configure_logging_without_elastic_emits_ecs_json_only(
     isolated_root_logger,
@@ -176,7 +174,6 @@ def test_configure_logging_twice_does_not_duplicate_stdout(
     assert len(capsys.readouterr().out.splitlines()) == 1
 
 
-@qase.id(21)
 @pytest.mark.regression
 def test_shutdown_flushes_and_shuts_down_provider_once(
     isolated_root_logger,
@@ -220,7 +217,6 @@ def test_shutdown_flushes_and_shuts_down_provider_once(
     )
 
 
-@qase.id(22)
 @pytest.mark.regression
 def test_otlp_setup_failure_does_not_log_api_key(
     isolated_root_logger,

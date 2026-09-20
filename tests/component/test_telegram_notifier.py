@@ -3,7 +3,6 @@ import traceback
 from unittest.mock import MagicMock, patch
 
 import pytest
-from qase.pytest import qase
 import requests
 
 from src.config import SearchLocation, Settings
@@ -20,7 +19,6 @@ TEST_SETTINGS = Settings(
 )
 
 
-@qase.id(19)
 @pytest.mark.regression
 def test_send_telegram_message_sanitizes_delivery_failure(caplog):
     token = TEST_SETTINGS.telegram_bot_token

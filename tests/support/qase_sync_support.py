@@ -9,6 +9,7 @@ from scripts import sync_qase_cases as qase
 _TEST_CASES_YAML = """\
 suites:
   - name: Event Discovery
+    status: active
     cases:
       - title: Canceled Ticketmaster events are excluded
         description: Canceled Ticketmaster events are excluded before recommendations.
@@ -70,7 +71,11 @@ class FakeSession:
 
 
 def _suites():
-    return yaml.safe_load(_TEST_CASES_YAML)["suites"]
+    suites = yaml.safe_load(_TEST_CASES_YAML)["suites"]
+    for suite in suites:
+        for case in suite["cases"]:
+            case.setdefault("status", suite.get("status", "active"))
+    return suites
 
 
 def _use_test_catalog(monkeypatch, tmp_path):

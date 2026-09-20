@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,7 +16,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 _SCENARIO_HAPPY_PATH = "happy_path"
-_SUPPORTED_SCENARIOS = {_SCENARIO_HAPPY_PATH}
+_SCENARIO_TELEGRAM_FAILURE = "telegram_failure"
+_SCENARIO_NO_EVENTS = "no_events"
+_SCENARIO_PREVIOUSLY_SEEN_EVENT = "previously_seen_event"
+_SCENARIO_CANCELED_EVENT_FILTERING = "canceled_event_filtering"
+_SCENARIO_OPENAI_FAILURE = "openai_failure"
+_SCENARIO_MULTIPLE_EVENTS = "multiple_events"
 _REDACTED = "[REDACTED]"
 _TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(
     r"^/telegram/bot[^/]+/sendMessage$"
@@ -43,12 +49,24 @@ _EVENT_CITY = "Tychy"
 _EVENT_VENUE = "Fake Venue"
 
 
-def _event_payload() -> dict[str, Any]:
+@dataclass(frozen=True)
+class _Scenario:
+    events: tuple[dict[str, Any], ...]
+    recommendation_event_id: str | None
+    telegram_status: HTTPStatus = HTTPStatus.OK
+    openai_status: HTTPStatus = HTTPStatus.OK
+
+
+def _event_payload(
+    event_id: str = _EVENT_ID,
+    name: str = _EVENT_NAME,
+    status: str = "onsale",
+) -> dict[str, Any]:
     return {
-        "id": _EVENT_ID,
-        "name": _EVENT_NAME,
+        "id": event_id,
+        "name": name,
         "dates": {
-            "status": {"code": "onsale"},
+            "status": {"code": status},
             "start": {
                 "localDate": _EVENT_DATE,
                 "localTime": _EVENT_TIME,
@@ -66,12 +84,57 @@ def _event_payload() -> dict[str, Any]:
     }
 
 
-def _ticketmaster_search_payload() -> dict[str, Any]:
+_HAPPY_EVENT = _event_payload()
+_CANCELED_EVENT = _event_payload(
+    event_id="event-canceled-1",
+    name="Canceled Fake Concert",
+    status="canceled",
+)
+_VALID_EVENT = _event_payload(
+    event_id="event-valid-1",
+    name="Valid Fake Concert",
+)
+_MULTIPLE_OTHER_EVENT = _event_payload(
+    event_id="event-multiple-other-1",
+    name="Other Fake Concert",
+)
+_MULTIPLE_SELECTED_EVENT = _event_payload(
+    event_id="event-multiple-selected-1",
+    name="Selected Fake Concert",
+)
+
+_SCENARIOS = {
+    _SCENARIO_HAPPY_PATH: _Scenario((_HAPPY_EVENT,), _EVENT_ID),
+    _SCENARIO_TELEGRAM_FAILURE: _Scenario(
+        (_HAPPY_EVENT,),
+        _EVENT_ID,
+        telegram_status=HTTPStatus.SERVICE_UNAVAILABLE,
+    ),
+    _SCENARIO_NO_EVENTS: _Scenario((), None),
+    _SCENARIO_PREVIOUSLY_SEEN_EVENT: _Scenario((_HAPPY_EVENT,), None),
+    _SCENARIO_CANCELED_EVENT_FILTERING: _Scenario(
+        (_CANCELED_EVENT, _VALID_EVENT),
+        "event-valid-1",
+    ),
+    _SCENARIO_OPENAI_FAILURE: _Scenario(
+        (),
+        None,
+        openai_status=HTTPStatus.SERVICE_UNAVAILABLE,
+    ),
+    _SCENARIO_MULTIPLE_EVENTS: _Scenario(
+        (_MULTIPLE_OTHER_EVENT, _MULTIPLE_SELECTED_EVENT),
+        "event-multiple-selected-1",
+    ),
+}
+_SUPPORTED_SCENARIOS = set(_SCENARIOS)
+
+
+def _ticketmaster_search_payload(scenario: _Scenario) -> dict[str, Any]:
     return {
-        "_embedded": {"events": [_event_payload()]},
+        "_embedded": {"events": list(scenario.events)},
         "page": {
             "size": 10,
-            "totalElements": 1,
+            "totalElements": len(scenario.events),
             "totalPages": 1,
             "number": 0,
         },
@@ -100,18 +163,32 @@ def _openai_tool_response(request_body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _openai_final_response(request_body: dict[str, Any]) -> dict[str, Any]:
-    recommendation = {
-        "event_id": _EVENT_ID,
-        "name": _EVENT_NAME,
-        "category": "music",
-        "date": _EVENT_DATE,
-        "time": _EVENT_TIME,
-        "city": _EVENT_CITY,
-        "venue": _EVENT_VENUE,
-        "reason": "Deterministic fake recommendation.",
-        "url": None,
-    }
+def _openai_final_response(
+    request_body: dict[str, Any],
+    scenario: _Scenario,
+) -> dict[str, Any]:
+    recommendation_event = next(
+        (
+            event
+            for event in scenario.events
+            if event["id"] == scenario.recommendation_event_id
+        ),
+        None,
+    )
+    recommendations = []
+    if recommendation_event is not None:
+        recommendation = {
+            "event_id": recommendation_event["id"],
+            "name": recommendation_event["name"],
+            "category": "music",
+            "date": _EVENT_DATE,
+            "time": _EVENT_TIME,
+            "city": _EVENT_CITY,
+            "venue": _EVENT_VENUE,
+            "reason": "Deterministic fake recommendation.",
+            "url": None,
+        }
+        recommendations.append(recommendation)
     return {
         "id": "response-happy-final",
         "object": "response",
@@ -127,7 +204,7 @@ def _openai_final_response(request_body: dict[str, Any]) -> dict[str, Any]:
                     {
                         "type": "output_text",
                         "text": json.dumps(
-                            {"recommendations": [recommendation]}
+                            {"recommendations": recommendations}
                         ),
                         "annotations": [],
                     }
@@ -215,6 +292,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
+        scenario = _SCENARIOS[self._scenario]
         if path == "/health":
             self._send_json(
                 HTTPStatus.OK,
@@ -230,18 +308,27 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
         self._record_request(None)
         if path == "/ticketmaster/discovery/v2/events.json":
-            self._send_json(HTTPStatus.OK, _ticketmaster_search_payload())
+            self._send_json(HTTPStatus.OK, _ticketmaster_search_payload(scenario))
             return
 
         details_match = _TICKETMASTER_DETAILS_PATTERN.fullmatch(path)
-        if details_match is not None and details_match.group(1) == _EVENT_ID:
-            self._send_json(HTTPStatus.OK, _event_payload())
+        matching_event = next(
+            (
+                event
+                for event in scenario.events
+                if details_match is not None and event["id"] == details_match.group(1)
+            ),
+            None,
+        )
+        if matching_event is not None:
+            self._send_json(HTTPStatus.OK, matching_event)
             return
 
         self._send_not_found()
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
+        scenario = _SCENARIOS[self._scenario]
         if path == "/__reset":
             self._journal.reset()
             self._send_json(HTTPStatus.OK, {"reset": True})
@@ -258,14 +345,26 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
                     {"error": "OpenAI request body must be a JSON object"},
                 )
                 return
+            if scenario.openai_status != HTTPStatus.OK:
+                self._send_json(
+                    scenario.openai_status,
+                    {"error": {"message": "Deterministic OpenAI failure"}},
+                )
+                return
             if request_body.get("previous_response_id"):
-                response = _openai_final_response(request_body)
+                response = _openai_final_response(request_body, scenario)
             else:
                 response = _openai_tool_response(request_body)
             self._send_json(HTTPStatus.OK, response)
             return
 
         if _TELEGRAM_SEND_MESSAGE_PATTERN.fullmatch(path):
+            if scenario.telegram_status != HTTPStatus.OK:
+                self._send_json(
+                    scenario.telegram_status,
+                    {"ok": False, "description": "Deterministic Telegram failure"},
+                )
+                return
             self._send_json(
                 HTTPStatus.OK,
                 {

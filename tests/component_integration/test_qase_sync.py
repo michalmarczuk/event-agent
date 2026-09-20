@@ -192,17 +192,7 @@ def test_sync_prefers_qase_id_without_sending_reference_metadata():
     assert "qase_id" not in desired
 
 
-@pytest.mark.parametrize(
-    ("remote_override", "error_match"),
-    [
-        ({"title": "Different title"}, "different title"),
-        ({"suite_id": 99}, "different suite"),
-    ],
-)
-def test_sync_rejects_qase_id_resolving_to_different_case_or_suite(
-    remote_override,
-    error_match,
-):
+def test_sync_rejects_qase_id_resolving_to_different_case_title():
     suites = _suites()
     suites[0]["cases"][0]["qase_id"] = 11
     desired = qase._case_payload(suites[0]["cases"][0], 7)
@@ -215,12 +205,12 @@ def test_sync_rejects_qase_id_resolving_to_different_case_or_suite(
             return _response(
                 {
                     "status": True,
-                    "result": {"id": 11, **desired, **remote_override},
+                    "result": {"id": 11, **desired, "title": "Different title"},
                 }
             )
         raise AssertionError(path)
 
-    with pytest.raises(qase.QaseSyncError, match=error_match):
+    with pytest.raises(qase.QaseSyncError, match="different title"):
         qase.sync_cases(FakeSession(handler), suites, dry_run=True)
 
 

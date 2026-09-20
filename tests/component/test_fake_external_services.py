@@ -1,4 +1,5 @@
 import json
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -117,6 +118,66 @@ def test_ticketmaster_search_returns_deterministic_event(fake_services):
         "totalElements": 1,
         "totalPages": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_event_ids"),
+    [
+        ("happy_path", ["event-happy-1"]),
+        ("no_events", []),
+        ("previously_seen_event", ["event-happy-1"]),
+        (
+            "canceled_event_filtering",
+            ["event-canceled-1", "event-valid-1"],
+        ),
+        (
+            "multiple_events",
+            ["event-multiple-other-1", "event-multiple-selected-1"],
+        ),
+    ],
+)
+def test_scenarios_return_deterministic_ticketmaster_events(
+    scenario,
+    expected_event_ids,
+):
+    with FakeExternalServicesServer(scenario=scenario) as server:
+        status, payload = _request(
+            server,
+            "GET",
+            "/ticketmaster/discovery/v2/events.json?page=0",
+        )
+
+    assert status == 200
+    assert [event["id"] for event in payload["_embedded"]["events"]] == (
+        expected_event_ids
+    )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "path", "body"),
+    [
+        (
+            "openai_failure",
+            "/openai/v1/responses",
+            {"model": "test-model", "input": "Find events"},
+        ),
+        (
+            "telegram_failure",
+            "/telegram/bottest-telegram-token/sendMessage",
+            {"chat_id": "test-chat", "text": "Event report"},
+        ),
+    ],
+)
+def test_failure_scenarios_return_deterministic_5xx(
+    scenario,
+    path,
+    body,
+):
+    with FakeExternalServicesServer(scenario=scenario) as server:
+        with pytest.raises(HTTPError) as error:
+            _request(server, "POST", path, body)
+
+    assert error.value.code == 503
 
 
 def test_ticketmaster_details_match_search_event(fake_services):

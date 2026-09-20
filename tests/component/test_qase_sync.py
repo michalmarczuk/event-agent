@@ -23,6 +23,16 @@ _SMOKE_CASE_TITLES = {
     "Elastic OTLP endpoint accepts an event-agent log record",
 }
 
+_SYSTEM_CASE_TITLES = {
+    "Daily job happy path completes delivery and persists history",
+    "Telegram failure prevents history persistence",
+    "No eligible events sends an explicit no-events notification",
+    "Previously seen events are not delivered again",
+    "Canceled Ticketmaster events are filtered before recommendation",
+    "OpenAI failure prevents delivery and partial history persistence",
+    "Only delivered recommendations are persisted from multiple candidates",
+}
+
 
 def _qualified_name(node):
     if isinstance(node, ast.Name):
@@ -96,6 +106,7 @@ def _pytest_qase_links():
                         "pytest.mark.smoke",
                         "pytest.mark.live",
                     }.issubset(decorator_names)
+                    or path.parent.name == "system"
                 )
                 assert not any(
                     isinstance(decorator, ast.Call)
@@ -111,17 +122,30 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     suites = qase.load_cases(qase.CASES_FILE)
     cases = [case for suite in suites for case in suite["cases"]]
 
-    assert len(cases) == 27
+    assert len(cases) == 34
     assert all("qase_id" in case for case in cases)
     catalog_ids = [case["qase_id"] for case in cases]
     assert all(type(case_id) is int and case_id > 0 for case_id in catalog_ids)
     assert len(set(catalog_ids)) == len(catalog_ids)
 
+    active_cases = [case for case in cases if case["status"] == "active"]
+    deprecated_cases = [case for case in cases if case["status"] == "deprecated"]
+    assert len(active_cases) == 11
+    assert len(deprecated_cases) == 23
+    assert {case["qase_id"] for case in deprecated_cases} == set(range(1, 24))
+
+    active_suites = {
+        suite["name"] for suite in suites if suite["status"] == "active"
+    }
+    assert active_suites == {"System", "System Integration"}
+
     links = _pytest_qase_links()
     linked_ids = [case_id for case_id, _, _ in links]
-    assert len(links) == 27
-    assert len({owner for _, _, owner in links}) == 27
-    assert Counter(linked_ids) == Counter(catalog_ids)
+    assert len(links) == 11
+    assert len({owner for _, _, owner in links}) == 11
+    assert Counter(linked_ids) == Counter(
+        case["qase_id"] for case in active_cases
+    )
 
     tests_root = Path(__file__).resolve().parents[1]
     qase_marker = ".".join(("pytest", "mark", "qase"))
@@ -133,38 +157,63 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
         )
     )
 
-    offline_links = [
-        link for link in links if link[1].parent.name != "system_integration"
-    ]
+    system_links = [link for link in links if link[1].parent.name == "system"]
     smoke_links = [
         link for link in links if link[1].parent.name == "system_integration"
     ]
-    assert len(offline_links) == 23
+    assert len(system_links) == 7
     assert len(smoke_links) == 4
 
     smoke_ids = {
-        case["qase_id"] for case in cases if case["title"] in _SMOKE_CASE_TITLES
+        case["qase_id"]
+        for case in active_cases
+        if case["title"] in _SMOKE_CASE_TITLES
     }
-    assert len(smoke_ids) == 4
+    assert smoke_ids == {24, 25, 26, 27}
     paths_by_id = {case_id: path for case_id, path, _ in links}
     assert all(
         paths_by_id[case_id].parent.name == "system_integration"
         for case_id in smoke_ids
     )
 
-    event_discovery = next(
-        suite for suite in suites if suite["name"] == "Event Discovery"
-    )
-    case = next(
-        case
-        for case in event_discovery["cases"]
-        if case["title"] == "Canceled Ticketmaster events are excluded"
-    )
-    assert case["title"] == "Canceled Ticketmaster events are excluded"
-    assert case["priority"] == "high"
-    assert case["automated"] is True
-    assert len(case["steps"]) == 4
-    assert "event.reason=canceled" in case["steps"][-1]["expected"]
+    system_ids = {
+        case["qase_id"]
+        for case in active_cases
+        if case["title"] in _SYSTEM_CASE_TITLES
+    }
+    assert system_ids == set(range(28, 35))
+    paths_by_id = {case_id: path for case_id, path, _ in links}
+    assert all(paths_by_id[case_id].parent.name == "system" for case_id in system_ids)
+
+
+def test_legacy_regression_cases_remain_selected_without_qase_traceability():
+    tests_root = Path(__file__).resolve().parents[1]
+    regression_owners = set()
+    for path in sorted(tests_root.rglob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for function in (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ):
+            if any(
+                _qualified_name(decorator) == "pytest.mark.regression"
+                for decorator in function.decorator_list
+            ):
+                regression_owners.add((path, function.name, None))
+            for parameter in (
+                node
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call)
+                and _qualified_name(node.func) == "pytest.param"
+                and any(
+                    _qualified_name(candidate) == "pytest.mark.regression"
+                    for candidate in ast.walk(node)
+                )
+            ):
+                regression_owners.add((path, function.name, parameter.lineno))
+
+    assert len(regression_owners) == 23
 
 
 @pytest.mark.parametrize(
@@ -179,6 +228,74 @@ def test_priority_names_map_to_qase_ids(priority, expected_id):
 
     assert payload["priority"] == expected_id
     assert "qase_id" not in payload
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_id"),
+    [("active", 0), ("draft", 1), ("deprecated", 2)],
+)
+def test_case_status_names_map_to_qase_ids(status, expected_id):
+    case = dict(_suites()[0]["cases"][0], status=status)
+
+    assert qase._case_payload(case, 7)["status"] == expected_id
+
+
+def test_sync_marks_existing_case_as_deprecated():
+    suites = _suites()
+    case = suites[0]["cases"][0]
+    case.update({"qase_id": 11, "status": "deprecated"})
+    desired = qase._case_payload(case, 7)
+    remote = {"id": 11, **desired, "status": 0}
+
+    def handler(method, path, kwargs):
+        if (method, path) == ("GET", "/suite/EA"):
+            return _list_response([{"id": 7, "title": "Event Discovery"}])
+        if (method, path) == ("GET", "/case/EA/11"):
+            return _response({"status": True, "result": remote})
+        if (method, path) == ("PATCH", "/case/EA/11"):
+            assert kwargs["json"] == desired
+            return _response({"status": True, "result": {"id": 11}})
+        raise AssertionError((method, path))
+
+    summary = qase.sync_cases(FakeSession(handler), suites)
+
+    assert summary == {
+        "suites_created": 0,
+        "cases_created": 0,
+        "cases_updated": 1,
+        "cases_unchanged": 0,
+    }
+
+
+def test_sync_moves_referenced_case_to_new_suite():
+    suites = _suites()
+    suites[0]["name"] = "System Integration"
+    case = suites[0]["cases"][0]
+    case.update({"qase_id": 24, "status": "active"})
+    desired = qase._case_payload(case, 42)
+    remote = {"id": 24, **desired, "suite_id": 7}
+
+    def handler(method, path, kwargs):
+        if (method, path) == ("GET", "/suite/EA"):
+            return _list_response([])
+        if (method, path) == ("POST", "/suite/EA"):
+            assert kwargs["json"] == {"title": "System Integration"}
+            return _response({"status": True, "result": {"id": 42}})
+        if (method, path) == ("GET", "/case/EA/24"):
+            return _response({"status": True, "result": remote})
+        if (method, path) == ("PATCH", "/case/EA/24"):
+            assert kwargs["json"] == desired
+            return _response({"status": True, "result": {"id": 24}})
+        raise AssertionError((method, path))
+
+    summary = qase.sync_cases(FakeSession(handler), suites)
+
+    assert summary == {
+        "suites_created": 1,
+        "cases_created": 0,
+        "cases_updated": 1,
+        "cases_unchanged": 0,
+    }
 
 
 @pytest.mark.parametrize(

@@ -5,12 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from qase.pytest import qase
 
 from src.config import SearchLocation, Settings
 
 
-@qase.id(18)
 @pytest.mark.regression
 def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     monkeypatch, caplog,
@@ -130,6 +128,63 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     assert summary.__dict__["events.seen_loaded"] == 1
     assert summary.__dict__["events.recommended"] == 1
     assert summary.__dict__["events.seen_saved"] == 2
+
+
+def test_daily_no_recommendations_sends_info_message_and_preserves_history(
+    monkeypatch,
+):
+    operations = []
+    seen_ids = {"already-seen"}
+
+    fake_agent = SimpleNamespace(
+        run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
+            recommendations=[], recommended_event_ids=set()
+        )
+    )
+    fake_history = SimpleNamespace(
+        load_seen_event_ids=lambda: seen_ids,
+        save_seen_event_ids=lambda event_ids: operations.append(
+            ("persistence", event_ids)
+        ),
+    )
+    fake_telegram = SimpleNamespace(
+        send_telegram_message=lambda message: operations.append(("telegram", message))
+    )
+    fake_config = SimpleNamespace(
+        load_settings=lambda: SimpleNamespace(
+            search_location=SimpleNamespace(name="Tychy", radius_km=50)
+        )
+    )
+    fake_formatter = SimpleNamespace(
+        format_telegram_message=lambda recommendations, base_location_name, radius_km, days_ahead: (
+            operations.append(("formatter", recommendations))
+            or "Brak nowych wydarzeń."
+        )
+    )
+    fake_enrichment = SimpleNamespace(
+        enrich_ticketmaster_prices=lambda recommendations: recommendations,
+    )
+    fake_logging_config = SimpleNamespace(
+        configure_logging=lambda: None,
+        shutdown_logging=lambda: None,
+    )
+
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "history", fake_history)
+    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
+    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
+    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+
+    project_root = Path(__file__).resolve().parents[2]
+    runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+
+    assert operations == [
+        ("formatter", []),
+        ("telegram", "Brak nowych wydarzeń."),
+        ("persistence", seen_ids),
+    ]
 
 
 def test_daily_does_not_save_history_when_telegram_fails(monkeypatch, caplog):

@@ -17,29 +17,18 @@ downloaded browser:
 pytest -q
 ```
 
-Run only the offline tests linked to the Qase catalog without publishing:
+Run the retained local offline regression subset without Qase publishing:
 
 ```bash
 pytest -m regression -q
 ```
 
-Publish the 23 linked offline regression cases manually outside CI with:
-
-```bash
-scripts/run_qase_regression.sh
-```
-
-The runner requires `QASE_API_TOKEN` in the environment and maps it to the
-reporter's credential variable without printing it. Qase reporting remains off
-for normal pytest commands. The four linked live smoke cases are separate and
-are never selected by this offline reporting command.
-
-On pushes to `main` and manual CI dispatches, the `qase-regression` job invokes
-the same wrapper automatically after the primary test gate passes.
-
-Offline regression and live smoke results are published as separate Qase runs.
-The case synchronizer manages catalog definitions only; it does not publish
-pytest execution results.
+Qase reporting remains off for normal pytest commands. The CI System Tests job
+executes its seven Qase-linked scenarios once, writes a local Qase JSON report
+inside its network-isolated assertion container, and uploads that artifact in a
+separate non-blocking reporting job. The four linked live smoke cases are
+separate Hugging Face runs. The case synchronizer manages catalog definitions
+only; it does not publish pytest execution results.
 
 Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
@@ -228,19 +217,22 @@ One `CI` workflow runs on pushes to `main` and on manual dispatch, so GitHub
 shows the pipeline as one workflow run with this dependency graph:
 
 ```text
-tests + Allure results
+offline tests + Allure results
 ├── build and publish production image (passing tests only)
 ├── build and publish test-runtime image (passing tests only)
-├── publish 23 linked offline results to Qase (passing tests only)
-└── generate Allure report -> deploy GitHub Pages (even after pytest failure)
+└── black-box System Tests
+    ├── publish seven saved System Test results to Qase (non-blocking)
+    └── generate Allure report -> deploy GitHub Pages
 ```
 
-The tests job uploads `allure-results` before restoring pytest's exit code. A
-failed suite therefore skips both image builds, remains visible as a failed CI
-run, skips Qase publication, and still allows the report and Pages deployment
-to complete. The Qase job uses the existing safe regression wrapper and only
-reports the 23 linked non-smoke tests. Docker, Qase, Allure-generation, or Pages
-failures also leave the same CI run failed.
+The offline job uploads `allure-results` before restoring pytest's exit code. A
+failed suite therefore skips image builds and System Tests, remains visible as a
+failed CI run, and still allows the report and Pages deployment to complete.
+System Tests produce both Allure and local Qase-format results in their single
+black-box execution. Qase publication imports exactly those seven saved results
+into a `System Tests` run; a publication failure is visible but does not block
+the quality gates or Pages deployment. Docker, Allure-generation, or Pages
+failures still leave the same CI run failed.
 
 The two independently cleaned GHCR packages are:
 
@@ -253,12 +245,12 @@ ghcr.io/michalmarczuk/event-agent-tests:sha-<commit-sha>
 
 GitHub Actions uses `GITHUB_TOKEN` for GHCR authentication and GitHub's Pages
 permissions for deployment. Application secrets are not provided to CI;
-`QASE_API_TOKEN` is exposed only to the Qase regression step. The primary suite
-keeps Qase reporting off, and browser doubles keep application dependencies
-offline. The Qase job contacts only Qase TestOps to publish its results; live
-smoke tests remain opt-in. The image build fetches and verifies the Camoufox
-payload, but a successful build still does not prove live Ticketmaster
-rendering or exit-node connectivity.
+`QASE_API_TOKEN` is exposed only to the separate Qase publication job. The
+primary suite keeps Qase reporting off, and browser doubles keep application
+dependencies offline. The Qase job contacts only Qase TestOps to publish saved
+System Test results; live smoke tests remain opt-in. The image build fetches and
+verifies the Camoufox payload, but a successful build still does not prove live
+Ticketmaster rendering or exit-node connectivity.
 
 Configure `QASE_API_TOKEN` as a GitHub Actions repository secret. It is not
 passed to either Docker build and is never included in an image.

@@ -1,5 +1,6 @@
 suites:
   - name: Event Discovery
+    status: deprecated
     cases:
       - title: Canceled Ticketmaster events are excluded
         qase_id: 1
@@ -75,22 +76,8 @@ suites:
           - action: Inspect application logs and formatted exceptions.
             expected: The Ticketmaster API key is absent.
 
-      - title: Ticketmaster Discovery API is reachable with valid credentials
-        qase_id: 24
-        description: >-
-          This live smoke check verifies authenticated connectivity to the
-          Ticketmaster Discovery API without depending on a fixed event.
-        preconditions: >-
-          Smoke tests are enabled with --run-smoke and TICKETMASTER_API_KEY is configured.
-        priority: high
-        automated: true
-        steps:
-          - action: Execute the live Ticketmaster discovery smoke request.
-            expected: The authenticated Discovery API request completes successfully.
-          - action: Inspect the returned application-domain result.
-            expected: A valid Event list is returned without requiring a specific event name or ID.
-
   - name: Agent Grounding & Selection
+    status: deprecated
     cases:
       - title: Recommendations require successfully grounded event IDs
         qase_id: 2
@@ -170,6 +157,7 @@ suites:
             expected: No more than ten fresh events are exposed or grounded.
 
   - name: Price Enrichment
+    status: deprecated
     cases:
       - title: Only final Ticketmaster recommendations are price-enriched
         qase_id: 7
@@ -286,6 +274,7 @@ suites:
             expected: The result remains unavailable and is never interpreted as free admission.
 
   - name: Delivery & Persistence
+    status: deprecated
     cases:
       - title: Enriched provider prices are rendered in Telegram output
         qase_id: 17
@@ -336,22 +325,8 @@ suites:
           - action: Inspect the exception, traceback, and application logs.
             expected: The Telegram bot token and credentialed URL are absent.
 
-      - title: Telegram bot authentication succeeds without sending a message
-        qase_id: 25
-        description: >-
-          This live smoke check validates Telegram bot credentials through getMe
-          without invoking message delivery.
-        preconditions: >-
-          Smoke tests are enabled with --run-smoke and TELEGRAM_BOT_TOKEN is configured.
-        priority: high
-        automated: true
-        steps:
-          - action: Call the live Telegram Bot API getMe method with the configured token.
-            expected: Telegram returns HTTP/API success and a valid bot identity.
-          - action: Complete the smoke check without invoking sendMessage.
-            expected: No Telegram message is sent and no application state is changed.
-
   - name: Observability & Runtime
+    status: deprecated
     cases:
       - title: ECS stdout logs include stable service and pipeline diagnostics
         qase_id: 20
@@ -424,6 +399,147 @@ suites:
             expected: Camoufox receives proxy options only for the configured run.
           - action: Exit the scraper lifecycle.
             expected: Browser and Playwright resources are closed exactly once.
+
+  - name: System
+    status: active
+    cases:
+      - title: Daily job happy path completes delivery and persists history
+        qase_id: 28
+        description: >-
+          The production daily container completes the deterministic discovery,
+          recommendation, delivery, and history-persistence flow against controlled services.
+        preconditions: >-
+          The production image runs against the happy-path fake external services scenario.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container with controlled OpenAI, Ticketmaster, and Telegram endpoints.
+            expected: The container exits successfully after a grounded recommendation is delivered.
+          - action: Inspect the request journal, persisted history, and ECS logs.
+            expected: The selected event is delivered and persisted, credentials are redacted, and daily_run has outcome success.
+
+      - title: Telegram failure prevents history persistence
+        qase_id: 29
+        description: >-
+          A Telegram transport failure fails the daily container without recording
+          an event that was not successfully delivered.
+        preconditions: >-
+          The production image runs against fake services that return a Telegram 5xx response.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container with a recommendation and failing Telegram delivery.
+            expected: The container exits with an error after one Telegram delivery attempt.
+          - action: Inspect persisted history and logs.
+            expected: No new event ID is persisted, secrets are absent, and no successful daily_run record is emitted.
+
+      - title: No eligible events sends an explicit no-events notification
+        qase_id: 30
+        description: >-
+          A successful run with no eligible events delivers a concise informational
+          notification instead of an empty recommendations report.
+        preconditions: >-
+          The production image runs against fake Ticketmaster and OpenAI responses containing no recommendations.
+        priority: medium
+        automated: true
+        steps:
+          - action: Run the production daily container with no eligible events.
+            expected: The container exits successfully and Telegram receives the explicit no-events notification.
+          - action: Inspect the Telegram body, history, and ECS logs.
+            expected: No recommendation is represented, no event ID is added to history, and daily_run has outcome success.
+
+      - title: Previously seen events are not delivered again
+        qase_id: 31
+        description: >-
+          Existing history prevents a previously delivered Ticketmaster event from
+          appearing again in the final daily report.
+        preconditions: >-
+          The production image starts with a seen_events.json containing the candidate event ID.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container when Ticketmaster returns the previously seen event.
+            expected: The event is removed before the model-visible tool result and is not delivered by Telegram.
+          - action: Inspect history after the successful run.
+            expected: The original seen event ID remains the only stored ID.
+
+      - title: Canceled Ticketmaster events are filtered before recommendation
+        qase_id: 32
+        description: >-
+          Ticketmaster events marked canceled never become model-visible candidates
+          or delivered recommendations in the production flow.
+        preconditions: >-
+          Fake Ticketmaster returns both a canceled event and an eligible event.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container against the canceled-event fake scenario.
+            expected: Only the eligible event is passed in the OpenAI tool output and delivered through Telegram.
+          - action: Inspect saved history and logs.
+            expected: Only the eligible event ID is persisted and the canceled event is absent from the delivered report.
+
+      - title: OpenAI failure prevents delivery and partial history persistence
+        qase_id: 33
+        description: >-
+          An OpenAI Responses API failure aborts the batch before external delivery
+          or history mutation.
+        preconditions: >-
+          The production image runs against fake OpenAI that returns a controlled failure.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container with a failing initial OpenAI request.
+            expected: The container exits with an error before Ticketmaster discovery or Telegram delivery.
+          - action: Inspect the journal, persisted history, and logs.
+            expected: Telegram is not called, history is unchanged, secrets are absent, and no successful daily_run record is emitted.
+
+      - title: Only delivered recommendations are persisted from multiple candidates
+        qase_id: 34
+        description: >-
+          When discovery returns multiple candidates, persistence records only the
+          event selected and delivered in the final recommendation.
+        preconditions: >-
+          The production image runs against fake services with multiple Ticketmaster events and one deterministic selection.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container against the multiple-events fake scenario.
+            expected: Telegram contains only the selected recommendation.
+          - action: Inspect seen_events.json after successful delivery.
+            expected: History contains only the selected and delivered event ID.
+
+  - name: System Integration
+    status: active
+    cases:
+      - title: Ticketmaster Discovery API is reachable with valid credentials
+        qase_id: 24
+        description: >-
+          This live smoke check verifies authenticated connectivity to the
+          Ticketmaster Discovery API without depending on a fixed event.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and TICKETMASTER_API_KEY is configured.
+        priority: high
+        automated: true
+        steps:
+          - action: Execute the live Ticketmaster discovery smoke request.
+            expected: The authenticated Discovery API request completes successfully.
+          - action: Inspect the returned HTTP response.
+            expected: The API returns a successful response with a valid discovery result shape.
+
+      - title: Telegram bot authentication succeeds without sending a message
+        qase_id: 25
+        description: >-
+          This live smoke check validates Telegram bot credentials through getMe
+          without invoking message delivery.
+        preconditions: >-
+          Smoke tests are enabled with --run-smoke and TELEGRAM_BOT_TOKEN is configured.
+        priority: high
+        automated: true
+        steps:
+          - action: Call the live Telegram Bot API getMe method with the configured token.
+            expected: Telegram returns HTTP/API success and a valid bot identity.
+          - action: Complete the smoke check without invoking sendMessage.
+            expected: No Telegram message is sent and no application state is changed.
 
       - title: Camoufox can reach Ticketmaster through the configured browser network path
         qase_id: 26

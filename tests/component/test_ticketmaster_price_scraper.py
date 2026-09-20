@@ -2,13 +2,11 @@ import logging
 from unittest.mock import MagicMock, call
 
 import pytest
-from qase.pytest import qase
 
 from src.models import Admission
 from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 
-@qase.id(13)
 @pytest.mark.regression
 def test_scrape_extracts_two_prices_as_range():
     scraper, _, _ = scraper_for(
@@ -19,7 +17,6 @@ def test_scrape_extracts_two_prices_as_range():
     assert scraper.scrape(_EVENT_URL) == Admission(False, 37.10, 63.60, "PLN")
 
 
-@qase.id(15)
 @pytest.mark.regression
 def test_readiness_ignores_skip_link_until_best_available_is_visible():
     skip_link = "Pomiń, aby wyszukać bilety"
@@ -60,7 +57,7 @@ def test_readiness_ignores_skip_link_until_best_available_is_visible():
         "Accept",
         pytest.param(
             "Akceptuję",
-            marks=(qase.id(14), pytest.mark.regression),
+            marks=pytest.mark.regression,
         ),
     ],
 )
@@ -140,7 +137,6 @@ def test_scrape_extracts_prices_from_polish_ticket_section(
     )
 
 
-@qase.id(16)
 @pytest.mark.regression
 def test_scrape_returns_none_for_verification_page():
     scraper, _, _ = scraper_for("Let's Get Your Identity Verified - not a bot")
