@@ -10,7 +10,8 @@ env:
   ALLURE_VERSION: "2.46.1"
 
 jobs:
-  offline-tests:
+  component-tests:
+    name: Component + Component Integration Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,7 +72,7 @@ jobs:
           echo "pytest passed."
 
   build-production:
-    needs: offline-tests
+    needs: component-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -102,7 +103,7 @@ jobs:
           min-versions-to-keep: 5
 
   build-test-image:
-    needs: offline-tests
+    needs: component-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -225,7 +226,7 @@ jobs:
 
   allure-report:
     needs:
-      - offline-tests
+      - component-tests
       - build-production
       - build-test-image
       - system-test
@@ -272,10 +273,10 @@ jobs:
 
       - name: Add Allure environment metadata
         env:
-          PYTHON_VERSION: ${{ needs['offline-tests'].outputs.python_version }}
+          PYTHON_VERSION: ${{ needs['component-tests'].outputs.python_version }}
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-          TESTS_CONCLUSION: ${{ needs['offline-tests'].result }}
+          TESTS_CONCLUSION: ${{ needs['component-tests'].result }}
         run: |
           short_sha="${COMMIT_SHA:0:7}"
           {
