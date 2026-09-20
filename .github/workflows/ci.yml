@@ -155,11 +155,21 @@ jobs:
           docker pull "ghcr.io/michalmarczuk/event-agent-tests:sha-${GITHUB_SHA}"
 
       - name: Run black-box system test
+        env:
+          EVENT_AGENT_SYSTEM_ALLURE_DIR: ${{ github.workspace }}/allure-results/system
         run: |
           EVENT_AGENT_SYSTEM_SKIP_BUILD=1 \
           EVENT_AGENT_SYSTEM_PRODUCTION_IMAGE="ghcr.io/michalmarczuk/event-agent:sha-${GITHUB_SHA}" \
           EVENT_AGENT_SYSTEM_TEST_IMAGE="ghcr.io/michalmarczuk/event-agent-tests:sha-${GITHUB_SHA}" \
           ./scripts/run_system_tests.sh
+
+      - name: Upload system Allure results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-system
+          path: allure-results/system
+          if-no-files-found: error
 
   qase-regression:
     needs: system-test
@@ -200,11 +210,38 @@ jobs:
       id-token: write
 
     steps:
-      - name: Download Allure results
+      - name: Download offline and system Allure results
         uses: actions/download-artifact@v4
         with:
-          name: allure-results
-          path: allure-results
+          pattern: allure-results*
+          path: allure-inputs
+          merge-multiple: false
+
+      - name: Merge Allure results without overwriting files
+        env:
+          SYSTEM_TEST_RESULT: ${{ needs['system-test'].result }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import shutil
+
+          inputs = Path("allure-inputs")
+          output = Path("allure-results")
+          output.mkdir()
+          for name in ("allure-results", "allure-results-system"):
+              artifact = inputs / name
+              if not artifact.is_dir():
+                  if name == "allure-results" or os.environ["SYSTEM_TEST_RESULT"] == "success":
+                      raise SystemExit(f"Missing Allure artifact: {name}")
+                  continue
+              for source in sorted(artifact.iterdir()):
+                  destination = output / source.name
+                  if destination.exists():
+                      raise SystemExit(f"Allure filename collision: {source.name}")
+                  with source.open("rb") as reader, destination.open("xb") as writer:
+                      shutil.copyfileobj(reader, writer)
+          PY
 
       - name: Add Allure environment metadata
         env:

@@ -16,6 +16,7 @@ assertions_container="$run_id-assertions"
 runtime_dir=$(mktemp -d /tmp/event-agent-system.XXXXXX)
 artifacts_dir="$runtime_dir/artifacts"
 data_dir="$runtime_dir/data"
+allure_results_dir=${EVENT_AGENT_SYSTEM_ALLURE_DIR:-$project_root/allure-results/system}
 
 mkdir -p "$artifacts_dir" "$data_dir"
 chmod 0777 "$data_dir"
@@ -110,13 +111,18 @@ docker exec "$fake_container" python -c \
     >"$artifacts_dir/journal.json"
 
 echo "Running black-box assertions from test image: $test_image"
+# Keep Allure results outside runtime_dir so cleanup preserves failed-test reports.
+mkdir -p "$allure_results_dir"
+allure_results_dir=$(CDPATH= cd -- "$allure_results_dir" && pwd)
 docker run --rm \
     --name "$assertions_container" \
     --network none \
     --volume "$artifacts_dir:/artifacts:ro" \
     --volume "$data_dir:/data:ro" \
+    --volume "$allure_results_dir:/allure-results" \
     --env EVENT_AGENT_SYSTEM_ARTIFACTS_DIR=/artifacts \
     --env EVENT_AGENT_SYSTEM_DATA_DIR=/data \
     --env QASE_MODE=off \
     "$test_image" \
-    pytest -q -m system tests/system/test_daily_black_box.py
+    pytest -q -m system tests/system/test_daily_black_box.py \
+        --alluredir=/allure-results --clean-alluredir
