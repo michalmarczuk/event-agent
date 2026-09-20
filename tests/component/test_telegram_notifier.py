@@ -19,7 +19,6 @@ TEST_SETTINGS = Settings(
 )
 
 
-@pytest.mark.regression
 def test_send_telegram_message_sanitizes_delivery_failure(caplog):
     token = TEST_SETTINGS.telegram_bot_token
     leaking_error = requests.HTTPError(

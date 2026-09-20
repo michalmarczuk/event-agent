@@ -38,7 +38,7 @@ delivery; see [Architecture](docs/architecture.md) for the complete flow.
 
 - The ISTQB-aligned test strategy separates Component, Component Integration,
   System, and System Integration Testing. Component and Component Integration
-  Testing has 183 deterministic checks; seven black-box System Tests exercise
+  Testing has 182 deterministic checks; seven black-box System Tests exercise
   the exact production container; four live System Integration smoke checks run
   separately on Hugging Face.
 - Search paginates past previously seen events (up to five API pages), returns
@@ -51,7 +51,7 @@ delivery; see [Architecture](docs/architecture.md) for the complete flow.
   provider `Admission`; they do not fail the daily run.
 - History stores recommended IDs only after Telegram delivery succeeds.
 - Component and Component Integration tests use no real OpenAI, Ticketmaster,
-  Telegram, or browser calls. The Allure CI report combines their 183 results
+  Telegram, or browser calls. The Allure CI report combines their 182 results
   with seven System Test results; Qase tracks the seven System and four live
   System Integration scenarios.
 

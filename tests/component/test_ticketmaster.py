@@ -24,7 +24,6 @@ def _discovery_page(number, total_pages, events):
     }
 
 
-@pytest.mark.regression
 def test_search_events_drops_canceled_event_with_structured_log(caplog):
     data = {
         "_embedded": {
@@ -62,10 +61,7 @@ def test_search_events_drops_canceled_event_with_structured_log(caplog):
 @pytest.mark.parametrize(
     "status",
     [
-        pytest.param(
-            "onsale",
-            marks=pytest.mark.regression,
-        ),
+        "onsale",
         "offsale",
         "postponed",
         "rescheduled",
@@ -94,7 +90,6 @@ def test_search_events_keeps_non_canceled_statuses(status):
     assert [event.id for event in events] == [event_id]
 
 
-@pytest.mark.regression
 def test_search_events_fetches_later_page_after_first_page_is_seen(caplog):
     responses = [
         _discovery_page(0, 2, [_discovery_event(f"seen-{index}") for index in range(10)]),

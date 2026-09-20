@@ -17,12 +17,6 @@ nor a downloaded browser:
 pytest -q tests/component tests/component_integration
 ```
 
-Run the retained local regression subset without Qase publishing:
-
-```bash
-pytest -m regression -q
-```
-
 Qase reporting remains off for normal pytest commands. The CI System Tests job
 executes its seven Qase-linked scenarios once, writes a local Qase JSON report
 inside its network-isolated assertion container, and uploads that artifact in a

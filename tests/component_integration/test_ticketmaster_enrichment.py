@@ -6,7 +6,6 @@ from src.ticketmaster_enrichment import enrich_ticketmaster_prices
 from tests.support.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 
 
-@pytest.mark.regression
 def test_enrichment_scrapes_only_final_ticketmaster_recommendations():
     FakeScraper.instances = []
     selected = recommendation("selected", "https://www.ticketmaster.pl/event/1")
@@ -33,7 +32,6 @@ def test_enrichment_reuses_one_scraper_for_multiple_recommendations():
     assert second.admission == FakeScraper.prices[second.url]
 
 
-@pytest.mark.regression
 def test_enrichment_replaces_existing_admission_after_successful_scrape():
     existing = Admission(False, 100, 100, "PLN")
     scraped = Admission(False, 150, 150, "PLN")
@@ -60,7 +58,6 @@ def test_enrichment_keeps_existing_admission_when_scrape_returns_none():
     assert result[0].admission == existing
 
 
-@pytest.mark.regression
 def test_enrichment_continues_after_one_scrape_fails():
     first = recommendation("first", "https://www.ticketmaster.pl/event/1")
     second = recommendation("second", "https://www.ticketmaster.pl/event/2")
@@ -90,7 +87,6 @@ def test_enrichment_skips_malformed_url_and_continues():
     assert valid.admission == expected
 
 
-@pytest.mark.regression
 def test_enrichment_output_is_rendered_in_telegram_message():
     ticketmaster_recommendation = recommendation(
         "event", "https://www.ticketmaster.pl/event/1"

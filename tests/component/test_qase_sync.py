@@ -186,36 +186,6 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     assert all(paths_by_id[case_id].parent.name == "system" for case_id in system_ids)
 
 
-def test_legacy_regression_cases_remain_selected_without_qase_traceability():
-    tests_root = Path(__file__).resolve().parents[1]
-    regression_owners = set()
-    for path in sorted(tests_root.rglob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for function in (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        ):
-            if any(
-                _qualified_name(decorator) == "pytest.mark.regression"
-                for decorator in function.decorator_list
-            ):
-                regression_owners.add((path, function.name, None))
-            for parameter in (
-                node
-                for node in ast.walk(function)
-                if isinstance(node, ast.Call)
-                and _qualified_name(node.func) == "pytest.param"
-                and any(
-                    _qualified_name(candidate) == "pytest.mark.regression"
-                    for candidate in ast.walk(node)
-                )
-            ):
-                regression_owners.add((path, function.name, parameter.lineno))
-
-    assert len(regression_owners) == 23
-
-
 @pytest.mark.parametrize(
     ("priority", "expected_id"),
     [("undefined", 0), ("high", 1), ("medium", 2), ("low", 3)],

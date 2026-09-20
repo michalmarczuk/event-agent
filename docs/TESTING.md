@@ -15,7 +15,7 @@ high-value black-box and live checks.
 | System Testing | `tests/system/` | The exact `event-agent` production image, treated as a black box. | Local Docker orchestration and GitHub Actions. | Happy path, Telegram failure, no events, seen-event filtering, canceled-event filtering, OpenAI failure, multiple candidates. |
 | System Integration Testing | `tests/system_integration/` | Live connectivity to external systems through the test runtime. | Explicit Hugging Face smoke run. | Ticketmaster Discovery API, Ticketmaster reached through Camoufox, Telegram `getMe`, Elastic OTLP ingestion. |
 
-Component and Component Integration Testing together currently contain 183
+Component and Component Integration Testing together currently contain 182
 tests. System Testing contains seven black-box scenarios. System Integration
 Testing contains four live smoke checks.
 
@@ -26,7 +26,6 @@ purpose or execution characteristic; it is not a test level.
 
 | Marker | Meaning | Current use |
 | --- | --- | --- |
-| `regression` | Stable local regression subset. | 23 selected Component or Component Integration tests. |
 | `smoke` | Fast availability check for a critical external integration. | The four System Integration checks. |
 | `live` | Calls a real external service rather than a mock or fake. | The same four System Integration checks. |
 
@@ -40,7 +39,7 @@ traceability from a representative pytest scenario to a Qase case.
 flowchart TB
     component["Component<br/>Testing<br/>tests/component"] --> runner["GitHub runner<br/>pytest"]
     component_integration["Component Integration<br/>Testing<br/>tests/component_integration"] --> runner
-    runner --> allure["Allure<br/>183"]
+    runner --> allure["Allure<br/>182"]
 
     system["System<br/>Testing<br/>tests/system"] --> sut["event-agent<br/>production<br/>image"]
     fake["event-agent-tests<br/>fake services"] --> sut
@@ -112,11 +111,11 @@ The seven deterministic scenarios cover:
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component +<br/>Component Integration<br/>183"] --> production["Build<br/>production"]
+    component["Component +<br/>Component Integration<br/>182"] --> production["Build<br/>production"]
     component --> test_image["Build<br/>test image"]
     production --> system["System tests<br/>7 black-box"]
     test_image --> system
-    component --> allure["Allure report<br/>190 results"]
+    component --> allure["Allure report<br/>189 results"]
     system --> allure
     allure --> pages["Deploy Pages"]
 
@@ -137,8 +136,8 @@ flowchart TB
 ```
 
 Allure is the technical report for every automated test executed by GitHub CI:
-183 Component and Component Integration results plus seven System results, for
-190 results in the final report. System Integration live smoke checks are not
+182 Component and Component Integration results plus seven System results, for
+189 results in the final report. System Integration live smoke checks are not
 run in GitHub CI and are therefore not added to that report; their execution
 details remain in Hugging Face logs.
 
@@ -184,12 +183,6 @@ Run a single local level or the CI-equivalent local selection:
 pytest -q tests/component
 pytest -q tests/component_integration
 pytest -q tests/component tests/component_integration
-```
-
-Run the retained local regression subset:
-
-```bash
-pytest -m regression -q
 ```
 
 Run black-box System Tests. Docker builds both local images unless the script is
