@@ -12,10 +12,11 @@ logger = logging.getLogger(__name__)
 
 def send_telegram_message(message: str) -> None:
     settings = load_settings()
+    api_base_url = settings.telegram_api_base_url.rstrip("/")
 
     try:
         response = requests.post(
-            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+            f"{api_base_url}/bot{settings.telegram_bot_token}/sendMessage",
             json={
                 "chat_id": settings.telegram_chat_id,
                 "text": message,

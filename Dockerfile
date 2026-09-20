@@ -27,13 +27,13 @@ FROM runtime-base AS test-runtime
 COPY requirements-test.txt .
 RUN pip install --no-cache-dir -r requirements-test.txt
 
-COPY src/ src/
-COPY data/ data/
-COPY scripts/ scripts/
-COPY tests/ tests/
-COPY pytest.ini .
+COPY scripts/run_hf_qase_smoke.sh scripts/run_hf_smoke.sh scripts/run_hf_smoke_runtime.sh scripts/
+COPY tests/__init__.py tests/conftest.py tests/
+COPY tests/smoke/ tests/smoke/
+COPY tests/system/ tests/system/
+COPY tests/support/__init__.py tests/support/fake_external_services.py tests/support/
+COPY pytest.ini qase.config.json ./
 RUN chmod 0755 \
-    scripts/run_hf.sh \
     scripts/run_hf_qase_smoke.sh \
     scripts/run_hf_smoke.sh \
     scripts/run_hf_smoke_runtime.sh

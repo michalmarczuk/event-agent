@@ -234,10 +234,14 @@ def run_agent(
     ticketmaster_client = TicketmasterClient(
         settings.ticketmaster_api_key,
         settings.search_location,
+        api_base_url=settings.ticketmaster_api_base_url,
     )
     tool_handlers = create_tool_handlers(ticketmaster_client)
     tool_definitions = get_tool_definitions()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+    )
     seen_event_ids = set(seen_event_ids or ())
     known_event_admissions: dict[str, Admission | None] = {}
 

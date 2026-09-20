@@ -10,7 +10,7 @@ env:
   ALLURE_VERSION: "2.46.1"
 
 jobs:
-  tests:
+  offline-tests:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,7 +40,10 @@ jobs:
           set +e
           pytest -q \
             --alluredir=allure-results \
-            --clean-alluredir
+            --clean-alluredir \
+            tests/unit \
+            tests/behavioral \
+            tests/integration
           pytest_exit_code=$?
           set -e
           echo "exit_code=${pytest_exit_code}" >> "${GITHUB_OUTPUT}"
@@ -69,7 +72,7 @@ jobs:
           echo "pytest passed."
 
   build-production:
-    needs: tests
+    needs: offline-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -100,7 +103,7 @@ jobs:
           min-versions-to-keep: 5
 
   build-test-image:
-    needs: tests
+    needs: offline-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -130,9 +133,37 @@ jobs:
           package-type: container
           min-versions-to-keep: 5
 
+  system-test:
+    needs:
+      - build-production
+      - build-test-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull immutable system-test images
+        run: |
+          docker pull "ghcr.io/michalmarczuk/event-agent:sha-${GITHUB_SHA}"
+          docker pull "ghcr.io/michalmarczuk/event-agent-tests:sha-${GITHUB_SHA}"
+
+      - name: Run black-box system test
+        run: |
+          EVENT_AGENT_SYSTEM_SKIP_BUILD=1 \
+          EVENT_AGENT_SYSTEM_PRODUCTION_IMAGE="ghcr.io/michalmarczuk/event-agent:sha-${GITHUB_SHA}" \
+          EVENT_AGENT_SYSTEM_TEST_IMAGE="ghcr.io/michalmarczuk/event-agent-tests:sha-${GITHUB_SHA}" \
+          ./scripts/run_system_tests.sh
+
   qase-regression:
-    needs: tests
-    if: ${{ needs.tests.result == 'success' }}
+    needs: system-test
+    if: ${{ needs['system-test'].result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -155,7 +186,12 @@ jobs:
         run: ./scripts/run_qase_regression.sh
 
   allure-report:
-    needs: tests
+    needs:
+      - offline-tests
+      - build-production
+      - build-test-image
+      - system-test
+      - qase-regression
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
@@ -172,10 +208,10 @@ jobs:
 
       - name: Add Allure environment metadata
         env:
-          PYTHON_VERSION: ${{ needs.tests.outputs.python_version }}
+          PYTHON_VERSION: ${{ needs['offline-tests'].outputs.python_version }}
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-          TESTS_CONCLUSION: ${{ needs.tests.result }}
+          TESTS_CONCLUSION: ${{ needs['offline-tests'].result }}
         run: |
           short_sha="${COMMIT_SHA:0:7}"
           {

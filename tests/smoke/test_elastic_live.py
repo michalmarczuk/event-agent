@@ -1,12 +1,12 @@
 """Opt-in ingestion check for Elastic Managed OTLP/HTTP."""
 
+import os
 import time
 
+from dotenv import load_dotenv
 import pytest
 from qase.pytest import qase
 import requests
-
-from src.config import load_elastic_logging_settings
 
 
 def _logs_endpoint(endpoint: str) -> str:
@@ -20,9 +20,9 @@ def _logs_endpoint(endpoint: str) -> str:
 @pytest.mark.qase
 def test_elastic_accepts_otlp_log() -> None:
     """Send one minimal structured log without exposing exporter credentials."""
-    settings = load_elastic_logging_settings()
-    endpoint = settings.elastic_otlp_endpoint
-    api_key = settings.elastic_api_key
+    load_dotenv()
+    endpoint = os.getenv("ELASTIC_OTLP_ENDPOINT")
+    api_key = os.getenv("ELASTIC_API_KEY")
     if not endpoint or not api_key:
         pytest.skip("ELASTIC_OTLP_ENDPOINT and ELASTIC_API_KEY are not configured")
 

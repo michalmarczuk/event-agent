@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 
+_DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+_DEFAULT_TICKETMASTER_API_BASE_URL = (
+    "https://app.ticketmaster.com/discovery/v2"
+)
+_DEFAULT_TELEGRAM_API_BASE_URL = "https://api.telegram.org"
+
+
 @dataclass(frozen=True)
 class SearchLocation:
     name: str
@@ -19,6 +26,9 @@ class Settings:
     telegram_chat_id: str
     model: str
     search_location: SearchLocation
+    openai_base_url: str = _DEFAULT_OPENAI_BASE_URL
+    ticketmaster_api_base_url: str = _DEFAULT_TICKETMASTER_API_BASE_URL
+    telegram_api_base_url: str = _DEFAULT_TELEGRAM_API_BASE_URL
     elastic_otlp_endpoint: str | None = None
     elastic_api_key: str | None = None
 
@@ -90,6 +100,17 @@ def load_settings() -> Settings:
     return Settings(
         **values,
         search_location=location,
+        openai_base_url=(
+            os.getenv("OPENAI_BASE_URL") or _DEFAULT_OPENAI_BASE_URL
+        ),
+        ticketmaster_api_base_url=(
+            os.getenv("TICKETMASTER_API_BASE_URL")
+            or _DEFAULT_TICKETMASTER_API_BASE_URL
+        ),
+        telegram_api_base_url=(
+            os.getenv("TELEGRAM_API_BASE_URL")
+            or _DEFAULT_TELEGRAM_API_BASE_URL
+        ),
         elastic_otlp_endpoint=elastic_logging.elastic_otlp_endpoint,
         elastic_api_key=elastic_logging.elastic_api_key,
     )

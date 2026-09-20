@@ -1,11 +1,11 @@
 """Opt-in browser connectivity check for Camoufox and Ticketmaster."""
 
+import os
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 import pytest
 from qase.pytest import qase
-
-from src.config import load_scraper_proxy_url
 
 
 _TICKETMASTER_URL = "https://www.ticketmaster.pl/"
@@ -63,7 +63,8 @@ def _open_ticketmaster(proxy_url: str | None) -> tuple[int | None, str, str]:
 @pytest.mark.qase
 def test_camoufox_reaches_ticketmaster() -> None:
     """Verify headed Camoufox connectivity without requiring event pricing."""
-    proxy_url = load_scraper_proxy_url()
+    load_dotenv()
+    proxy_url = os.getenv("SCRAPER_PROXY_URL") or None
 
     try:
         status, page_url, body_text = _open_ticketmaster(proxy_url)

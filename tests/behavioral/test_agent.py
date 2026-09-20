@@ -6,6 +6,7 @@ import pytest
 from qase.pytest import qase
 
 import src.agent as agent
+from src.config import SearchLocation, Settings
 from src.models import Admission, Event, EventDetails, Recommendation
 from tests.support.agent_support import (
     TEST_SETTINGS,
@@ -77,6 +78,39 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     assert isinstance(recommendation, Recommendation)
     assert recommendation.event_id == "event-1"
     assert recommendation.admission == admission
+
+
+def test_run_agent_passes_configured_base_urls_to_api_clients():
+    settings = Settings(
+        openai_api_key="openai-test-key",
+        ticketmaster_api_key="ticketmaster-test-key",
+        telegram_bot_token="telegram-test-token",
+        telegram_chat_id="telegram-test-chat",
+        model="test-model",
+        search_location=SearchLocation("Tychy", "u2y0test", 50),
+        openai_base_url="http://fake-services:8080/openai/v1",
+        ticketmaster_api_base_url=(
+            "http://fake-services:8080/ticketmaster/discovery/v2"
+        ),
+    )
+
+    with (
+        patch.object(agent, "load_settings", return_value=settings),
+        patch.object(agent, "TicketmasterClient") as ticketmaster_client,
+        patch.object(agent, "OpenAI") as openai,
+    ):
+        openai.return_value.responses.create.return_value = _final_response()
+        agent.run_agent("Find events")
+
+    ticketmaster_client.assert_called_once_with(
+        "ticketmaster-test-key",
+        settings.search_location,
+        api_base_url="http://fake-services:8080/ticketmaster/discovery/v2",
+    )
+    openai.assert_called_once_with(
+        api_key="openai-test-key",
+        base_url="http://fake-services:8080/openai/v1",
+    )
 
 
 def test_run_agent_returns_tool_error_to_model_and_continues():

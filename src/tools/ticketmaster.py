@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _SEARCH_PAGE_SIZE = 10
 _MAX_SEARCH_PAGES = 5
+_DEFAULT_API_BASE_URL = "https://app.ticketmaster.com/discovery/v2"
 
 
 def _log_canceled_event(event_id: str) -> None:
@@ -49,9 +50,15 @@ def _get_ticketmaster_data(
 
 
 class TicketmasterClient:
-    def __init__(self, api_key: str, location: SearchLocation):
+    def __init__(
+        self,
+        api_key: str,
+        location: SearchLocation,
+        api_base_url: str = _DEFAULT_API_BASE_URL,
+    ) -> None:
         self.api_key = api_key
         self.location = location
+        self.api_base_url = api_base_url.rstrip("/")
 
     def search_events(
         self,
@@ -61,7 +68,7 @@ class TicketmasterClient:
         """Return up to ten eligible events, paging past previously seen IDs."""
         logger.info("Searching Ticketmaster events near %s", self.location.name)
 
-        url = "https://app.ticketmaster.com/discovery/v2/events.json"
+        url = f"{self.api_base_url}/events.json"
         start_datetime = datetime.now(timezone.utc)
         end_datetime = start_datetime + timedelta(days=days_ahead)
 
@@ -163,7 +170,7 @@ class TicketmasterClient:
     def get_event_details(self, event_id: str) -> EventDetails:
         logger.info("Fetching Ticketmaster event details event_id=%s", event_id)
 
-        url = f"https://app.ticketmaster.com/discovery/v2/events/{event_id}.json"
+        url = f"{self.api_base_url}/events/{event_id}.json"
         event = _get_ticketmaster_data(
             url,
             {"apikey": self.api_key},

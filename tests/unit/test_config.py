@@ -26,9 +26,12 @@ def test_load_elastic_logging_settings_is_optional(monkeypatch):
 def test_load_settings_returns_all_environment_values(monkeypatch):
     values = {
         "OPENAI_API_KEY": "openai-test-key",
+        "OPENAI_BASE_URL": "https://openai.example/v1",
         "TICKETMASTER_API_KEY": "ticketmaster-test-key",
+        "TICKETMASTER_API_BASE_URL": "https://ticketmaster.example/discovery/v2",
         "TELEGRAM_BOT_TOKEN": "telegram-test-token",
         "TELEGRAM_CHAT_ID": "telegram-test-chat",
+        "TELEGRAM_API_BASE_URL": "https://telegram.example",
         "MODEL": "test-model",
         "EVENT_BASE_LOCATION_NAME": "Tychy",
         "EVENT_BASE_GEOPOINT": "u2y0test",
@@ -43,13 +46,50 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
     settings = config.load_settings()
 
     assert settings.openai_api_key == "openai-test-key"
+    assert settings.openai_base_url == "https://openai.example/v1"
     assert settings.ticketmaster_api_key == "ticketmaster-test-key"
+    assert (
+        settings.ticketmaster_api_base_url
+        == "https://ticketmaster.example/discovery/v2"
+    )
     assert settings.telegram_bot_token == "telegram-test-token"
     assert settings.telegram_chat_id == "telegram-test-chat"
+    assert settings.telegram_api_base_url == "https://telegram.example"
     assert settings.model == "test-model"
     assert settings.search_location == SearchLocation("Tychy", "u2y0test", 50)
     assert settings.elastic_otlp_endpoint == "https://elastic.example"
     assert settings.elastic_api_key == "elastic-test-key"
+
+
+def test_load_settings_uses_default_external_service_base_urls(monkeypatch):
+    values = {
+        "OPENAI_API_KEY": "openai-test-key",
+        "TICKETMASTER_API_KEY": "ticketmaster-test-key",
+        "TELEGRAM_BOT_TOKEN": "telegram-test-token",
+        "TELEGRAM_CHAT_ID": "telegram-test-chat",
+        "MODEL": "test-model",
+        "EVENT_BASE_LOCATION_NAME": "Tychy",
+        "EVENT_BASE_GEOPOINT": "u2y0test",
+        "EVENT_SEARCH_RADIUS_KM": "50",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    for name in (
+        "OPENAI_BASE_URL",
+        "TICKETMASTER_API_BASE_URL",
+        "TELEGRAM_API_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+
+    settings = config.load_settings()
+
+    assert settings.openai_base_url == "https://api.openai.com/v1"
+    assert (
+        settings.ticketmaster_api_base_url
+        == "https://app.ticketmaster.com/discovery/v2"
+    )
+    assert settings.telegram_api_base_url == "https://api.telegram.org"
 
 
 def test_load_settings_reports_one_missing_variable(monkeypatch):

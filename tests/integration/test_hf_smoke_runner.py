@@ -115,7 +115,7 @@ def test_hf_smoke_runner_preserves_cleanup_and_pytest_exit_contract():
 
     assert syntax_check.returncode == 0
     assert "export QASE_MODE=off" in script
-    assert "pytest --run-smoke -m smoke -q" in script
+    assert "pytest tests/smoke --run-smoke -m smoke -q" in script
     assert "trap cleanup EXIT" in runtime_script
     assert 'kill "$tailscaled_pid"' in runtime_script
     assert (
@@ -191,6 +191,7 @@ def test_hf_qase_smoke_runner_configures_safe_selection_and_propagates_exit(
     assert result.returncode == 17
     assert (tmp_path / "capture.args").read_text().splitlines() == [
         "pytest",
+        "tests/smoke",
         "--run-smoke",
         "-m",
         "qase and smoke",
@@ -235,6 +236,7 @@ def test_normal_hf_smoke_runner_keeps_qase_disabled(tmp_path: Path):
     assert result.returncode == 0
     assert (tmp_path / "capture.args").read_text().splitlines() == [
         "pytest",
+        "tests/smoke",
         "--run-smoke",
         "-m",
         "smoke",

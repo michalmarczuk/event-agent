@@ -1,0 +1,396 @@
+"""Deterministic HTTP fakes for black-box event-agent tests."""
+
+from __future__ import annotations
+
+import argparse
+from copy import deepcopy
+from functools import partial
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import re
+from threading import Lock, Thread
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+_SCENARIO_HAPPY_PATH = "happy_path"
+_SUPPORTED_SCENARIOS = {_SCENARIO_HAPPY_PATH}
+_REDACTED = "[REDACTED]"
+_TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(
+    r"^/telegram/bot[^/]+/sendMessage$"
+)
+_TICKETMASTER_DETAILS_PATTERN = re.compile(
+    r"^/ticketmaster/discovery/v2/events/([^/]+)\.json$"
+)
+_ADMIN_PATHS = {"/health", "/__journal", "/__reset"}
+_SENSITIVE_BODY_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "chat_id",
+    "password",
+    "secret",
+    "token",
+}
+
+_EVENT_ID = "event-happy-1"
+_EVENT_NAME = "Fake Concert"
+_EVENT_DATE = "2030-01-15"
+_EVENT_TIME = "19:00:00"
+_EVENT_CITY = "Tychy"
+_EVENT_VENUE = "Fake Venue"
+
+
+def _event_payload() -> dict[str, Any]:
+    return {
+        "id": _EVENT_ID,
+        "name": _EVENT_NAME,
+        "dates": {
+            "status": {"code": "onsale"},
+            "start": {
+                "localDate": _EVENT_DATE,
+                "localTime": _EVENT_TIME,
+            },
+        },
+        "url": None,
+        "_embedded": {
+            "venues": [
+                {
+                    "name": _EVENT_VENUE,
+                    "city": {"name": _EVENT_CITY},
+                }
+            ]
+        },
+    }
+
+
+def _ticketmaster_search_payload() -> dict[str, Any]:
+    return {
+        "_embedded": {"events": [_event_payload()]},
+        "page": {
+            "size": 10,
+            "totalElements": 1,
+            "totalPages": 1,
+            "number": 0,
+        },
+    }
+
+
+def _openai_tool_response(request_body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": "response-happy-tool",
+        "object": "response",
+        "created_at": 0,
+        "model": request_body.get("model", "fake-model"),
+        "output": [
+            {
+                "type": "function_call",
+                "id": "function-call-happy-1",
+                "call_id": "call-search-events-1",
+                "name": "search_events",
+                "arguments": json.dumps({"days_ahead": 30}),
+                "status": "completed",
+            }
+        ],
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+    }
+
+
+def _openai_final_response(request_body: dict[str, Any]) -> dict[str, Any]:
+    recommendation = {
+        "event_id": _EVENT_ID,
+        "name": _EVENT_NAME,
+        "category": "music",
+        "date": _EVENT_DATE,
+        "time": _EVENT_TIME,
+        "city": _EVENT_CITY,
+        "venue": _EVENT_VENUE,
+        "reason": "Deterministic fake recommendation.",
+        "url": None,
+    }
+    return {
+        "id": "response-happy-final",
+        "object": "response",
+        "created_at": 0,
+        "model": request_body.get("model", "fake-model"),
+        "output": [
+            {
+                "type": "message",
+                "id": "message-happy-1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": json.dumps(
+                            {"recommendations": [recommendation]}
+                        ),
+                        "annotations": [],
+                    }
+                ],
+            }
+        ],
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+    }
+
+
+def _redact_body(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (
+                _REDACTED
+                if key.casefold() in _SENSITIVE_BODY_KEYS
+                else _redact_body(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_body(item) for item in value]
+    return value
+
+
+def _safe_json_body(raw_body: bytes) -> Any:
+    if not raw_body:
+        return None
+    try:
+        return _redact_body(json.loads(raw_body))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {"unparseable_body_bytes": len(raw_body)}
+
+
+def _safe_path(raw_path: str) -> str:
+    parsed = urlsplit(raw_path)
+    path = parsed.path
+    if _TELEGRAM_SEND_MESSAGE_PATTERN.fullmatch(path):
+        path = re.sub(r"/bot[^/]+/", f"/bot{_REDACTED}/", path)
+
+    query = urlencode(
+        [
+            (key, _REDACTED if key.casefold() == "apikey" else value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit(("", "", path, query, ""))
+
+
+class _RequestJournal:
+    def __init__(self) -> None:
+        self._entries: list[dict[str, Any]] = []
+        self._lock = Lock()
+
+    def add(self, method: str, path: str, body: Any) -> None:
+        with self._lock:
+            self._entries.append(
+                {"method": method, "path": _safe_path(path), "body": body}
+            )
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return deepcopy(self._entries)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
+class _FakeRequestHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def __init__(
+        self,
+        *args: Any,
+        scenario: str,
+        journal: _RequestJournal,
+        **kwargs: Any,
+    ) -> None:
+        self._scenario = scenario
+        self._journal = journal
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        path = urlsplit(self.path).path
+        if path == "/health":
+            self._send_json(
+                HTTPStatus.OK,
+                {"status": "ok", "scenario": self._scenario},
+            )
+            return
+        if path == "/__journal":
+            self._send_json(
+                HTTPStatus.OK,
+                {"requests": self._journal.snapshot()},
+            )
+            return
+
+        self._record_request(None)
+        if path == "/ticketmaster/discovery/v2/events.json":
+            self._send_json(HTTPStatus.OK, _ticketmaster_search_payload())
+            return
+
+        details_match = _TICKETMASTER_DETAILS_PATTERN.fullmatch(path)
+        if details_match is not None and details_match.group(1) == _EVENT_ID:
+            self._send_json(HTTPStatus.OK, _event_payload())
+            return
+
+        self._send_not_found()
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        path = urlsplit(self.path).path
+        if path == "/__reset":
+            self._journal.reset()
+            self._send_json(HTTPStatus.OK, {"reset": True})
+            return
+
+        raw_body = self._read_body()
+        request_body = _safe_json_body(raw_body)
+        self._record_request(request_body)
+
+        if path == "/openai/v1/responses":
+            if not isinstance(request_body, dict):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "OpenAI request body must be a JSON object"},
+                )
+                return
+            if request_body.get("previous_response_id"):
+                response = _openai_final_response(request_body)
+            else:
+                response = _openai_tool_response(request_body)
+            self._send_json(HTTPStatus.OK, response)
+            return
+
+        if _TELEGRAM_SEND_MESSAGE_PATTERN.fullmatch(path):
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "result": {"message_id": 1},
+                },
+            )
+            return
+
+        self._send_not_found()
+
+    def _read_body(self) -> bytes:
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            return b""
+        try:
+            length = int(content_length)
+        except ValueError:
+            return b""
+        return self.rfile.read(max(length, 0))
+
+    def _record_request(self, body: Any) -> None:
+        if urlsplit(self.path).path not in _ADMIN_PATHS:
+            self._journal.add(self.command, self.path, body)
+
+    def _send_not_found(self) -> None:
+        self._send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+
+    def _send_json(self, status: HTTPStatus, payload: Any) -> None:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+
+class FakeExternalServicesServer:
+    """Run deterministic external-service fakes in a background thread."""
+
+    def __init__(
+        self,
+        scenario: str = _SCENARIO_HAPPY_PATH,
+        host: str = "127.0.0.1",
+        port: int = 0,
+    ) -> None:
+        if scenario not in _SUPPORTED_SCENARIOS:
+            raise ValueError(f"Unsupported fake-services scenario: {scenario}")
+
+        self.scenario = scenario
+        self._journal = _RequestJournal()
+        handler = partial(
+            _FakeRequestHandler,
+            scenario=scenario,
+            journal=self._journal,
+        )
+        self._httpd = ThreadingHTTPServer((host, port), handler)
+        self._thread: Thread | None = None
+
+    @property
+    def base_url(self) -> str:
+        """Return the bound HTTP origin after resolving an ephemeral port."""
+        host, port = self._httpd.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def start(self) -> None:
+        """Start serving requests in a daemon thread."""
+        if self._thread is not None:
+            return
+        self._thread = Thread(
+            target=self._httpd.serve_forever,
+            name="fake-external-services",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def close(self) -> None:
+        """Stop the background server and release its listening socket."""
+        if self._thread is not None:
+            self._httpd.shutdown()
+            self._thread.join()
+            self._thread = None
+        self._httpd.server_close()
+
+    def serve_forever(self) -> None:
+        """Serve synchronously until interrupted."""
+        try:
+            self._httpd.serve_forever()
+        finally:
+            self._httpd.server_close()
+
+    def __enter__(self) -> FakeExternalServicesServer:
+        self.start()
+        return self
+
+    def __exit__(self, exception_type, exception, traceback) -> None:
+        self.close()
+
+
+def main() -> None:
+    """Run the fake external services until interrupted."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", default=8080, type=int)
+    parser.add_argument("--scenario", default=_SCENARIO_HAPPY_PATH)
+    arguments = parser.parse_args()
+
+    server = FakeExternalServicesServer(
+        scenario=arguments.scenario,
+        host=arguments.host,
+        port=arguments.port,
+    )
+    print(
+        f"Fake external services listening on {server.base_url} "
+        f"scenario={server.scenario}",
+        flush=True,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

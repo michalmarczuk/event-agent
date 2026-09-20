@@ -7,7 +7,7 @@ import pytest
 
 
 _TESTS_ROOT = Path(__file__).parent
-_CATEGORIES = {"unit", "behavioral", "integration", "smoke"}
+_CATEGORIES = {"unit", "behavioral", "integration", "system", "smoke"}
 _QASE_REPORTING_MODE = "testops"
 
 

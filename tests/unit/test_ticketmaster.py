@@ -38,6 +38,10 @@ def test_search_events_uses_api_key_and_parses_events():
         ).search_events(30)
 
     get.assert_called_once()
+    assert (
+        get.call_args.args[0]
+        == "https://app.ticketmaster.com/discovery/v2/events.json"
+    )
     assert get.call_args.kwargs["params"]["apikey"] == "ticketmaster-test-key"
     assert get.call_args.kwargs["params"]["geoPoint"] == "u2y0test"
     assert get.call_args.kwargs["params"]["radius"] == 50
@@ -147,3 +151,27 @@ def test_get_event_details_uses_api_key_and_parses_event():
         city="Tychy",
         url="https://example.test/event-1",
     )
+
+
+def test_ticketmaster_client_builds_urls_from_configured_api_base_url():
+    responses = [
+        {"_embedded": {"events": []}},
+        {"name": "Concert"},
+    ]
+    client = TicketmasterClient(
+        "ticketmaster-test-key",
+        SearchLocation("Tychy", "u2y0test", 50),
+        api_base_url="http://fake-services:8080/ticketmaster/discovery/v2/",
+    )
+
+    with patch(
+        "src.tools.ticketmaster._get_ticketmaster_data",
+        side_effect=responses,
+    ) as get_data:
+        client.search_events(30)
+        client.get_event_details("event-1")
+
+    assert [call.args[0] for call in get_data.call_args_list] == [
+        "http://fake-services:8080/ticketmaster/discovery/v2/events.json",
+        "http://fake-services:8080/ticketmaster/discovery/v2/events/event-1.json",
+    ]
