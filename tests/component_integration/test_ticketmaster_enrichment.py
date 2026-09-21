@@ -16,6 +16,19 @@ def test_enrichment_scrapes_only_final_ticketmaster_recommendations():
     assert FakeScraper.instances[0].scraped_urls == [selected.url]
 
 
+def test_enrichment_skips_batch_without_ticketmaster_urls():
+    FakeScraper.instances = []
+    existing = Admission(False, 100, 100, "PLN")
+    non_ticketmaster = recommendation(
+        "other", "https://example.test/event", existing
+    )
+
+    enrich_ticketmaster_prices([non_ticketmaster], FakeScraper)
+
+    assert non_ticketmaster.admission == existing
+    assert FakeScraper.instances == []
+
+
 def test_enrichment_reuses_one_scraper_for_multiple_recommendations():
     FakeScraper.instances = []
     first = recommendation("first", "https://www.ticketmaster.pl/event/1")
