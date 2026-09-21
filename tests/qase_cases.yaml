@@ -508,6 +508,41 @@ suites:
           - action: Inspect seen_events.json after successful delivery.
             expected: History contains only the selected and delivered event ID.
 
+      - title: Ticketmaster failure prevents delivery and persistence
+        qase_id: 35
+        description: >-
+          A Ticketmaster Discovery failure must fail the production job without
+          being interpreted as a successful no-events result.
+        preconditions: >-
+          The production image runs against fake services whose Ticketmaster
+          Discovery endpoint returns a controlled HTTP 5xx response.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container with a failing Ticketmaster Discovery request.
+            expected: The container exits with a non-zero status after the discovery request fails.
+          - action: Inspect Telegram requests and the data directory.
+            expected: Telegram is not called and no seen_events.json entry is created or changed.
+          - action: Inspect ECS logs and the failed tool output journal.
+            expected: The run does not emit daily_run success or a no-events notification, and the API key is redacted.
+
+      - title: Ungrounded recommendation is rejected before delivery
+        qase_id: 36
+        description: >-
+          A recommendation ID not present in the grounded Ticketmaster candidate
+          set must fail the production run before delivery or persistence.
+        preconditions: >-
+          Fake OpenAI returns an unknown event ID after a successful Ticketmaster search.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container through a successful search and an ungrounded final recommendation.
+            expected: The container rejects the recommendation and exits with a non-zero status.
+          - action: Inspect the OpenAI journal, Telegram requests, and data directory.
+            expected: The search/tool loop occurred, but Telegram is not called and no history entry is written.
+          - action: Inspect logs and captured artifacts.
+            expected: The unknown recommendation is not delivered and credentials are absent from observable output.
+
   - name: System Integration
     status: active
     cases:

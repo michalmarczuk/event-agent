@@ -132,6 +132,7 @@ def test_run_agent_returns_tool_error_to_model_and_continues():
     ]
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
+    assert result.discovery_failed is True
 
 
 def test_model_visible_search_caps_oversized_tool_result_after_filtering():
@@ -259,6 +260,7 @@ def test_run_agent_filters_seen_and_same_run_events():
     }
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
+    assert result.discovery_failed is False
 
 
 def test_run_agent_returns_only_recommended_event_ids():

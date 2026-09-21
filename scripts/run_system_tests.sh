@@ -18,7 +18,7 @@ artifacts_root="$runtime_dir/artifacts"
 data_root="$runtime_dir/data"
 allure_results_dir=${EVENT_AGENT_SYSTEM_ALLURE_DIR:-$project_root/allure-results/system}
 qase_results_dir=${EVENT_AGENT_SYSTEM_QASE_DIR:-$project_root/qase-results/system}
-scenarios='happy_path telegram_failure no_events previously_seen_event canceled_event_filtering openai_failure multiple_events'
+scenarios='happy_path telegram_failure no_events previously_seen_event canceled_event_filtering openai_failure multiple_events ticketmaster_failure invalid_recommendation_id'
 
 mkdir -p "$artifacts_root" "$data_root"
 
@@ -156,7 +156,7 @@ docker run --rm \
 
 qase_report_dir="$qase_results_dir/report"
 qase_result_count=$(find "$qase_report_dir/results" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d '[:space:]')
-if [ "$qase_result_count" -ne 7 ] || [ ! -f "$qase_report_dir/run.json" ]; then
-    echo "Expected local Qase results for exactly seven System Tests." >&2
+if [ "$qase_result_count" -ne 9 ] || [ ! -f "$qase_report_dir/run.json" ]; then
+    echo "Expected local Qase results for exactly nine System Tests." >&2
     exit 1
 fi

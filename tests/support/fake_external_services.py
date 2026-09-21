@@ -22,6 +22,8 @@ _SCENARIO_PREVIOUSLY_SEEN_EVENT = "previously_seen_event"
 _SCENARIO_CANCELED_EVENT_FILTERING = "canceled_event_filtering"
 _SCENARIO_OPENAI_FAILURE = "openai_failure"
 _SCENARIO_MULTIPLE_EVENTS = "multiple_events"
+_SCENARIO_TICKETMASTER_FAILURE = "ticketmaster_failure"
+_SCENARIO_INVALID_RECOMMENDATION_ID = "invalid_recommendation_id"
 _REDACTED = "[REDACTED]"
 _TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(
     r"^/telegram/bot[^/]+/sendMessage$"
@@ -55,6 +57,8 @@ class _Scenario:
     recommendation_event_id: str | None
     telegram_status: HTTPStatus = HTTPStatus.OK
     openai_status: HTTPStatus = HTTPStatus.OK
+    ticketmaster_status: HTTPStatus = HTTPStatus.OK
+    invalid_recommendation_id: str | None = None
 
 
 def _event_payload(
@@ -125,6 +129,16 @@ _SCENARIOS = {
         (_MULTIPLE_OTHER_EVENT, _MULTIPLE_SELECTED_EVENT),
         "event-multiple-selected-1",
     ),
+    _SCENARIO_TICKETMASTER_FAILURE: _Scenario(
+        (),
+        None,
+        ticketmaster_status=HTTPStatus.SERVICE_UNAVAILABLE,
+    ),
+    _SCENARIO_INVALID_RECOMMENDATION_ID: _Scenario(
+        (_HAPPY_EVENT,),
+        None,
+        invalid_recommendation_id="unknown-event-id",
+    ),
 }
 _SUPPORTED_SCENARIOS = set(_SCENARIOS)
 
@@ -167,18 +181,25 @@ def _openai_final_response(
     request_body: dict[str, Any],
     scenario: _Scenario,
 ) -> dict[str, Any]:
-    recommendation_event = next(
+    if scenario.invalid_recommendation_id is not None:
+        recommendation_event = _HAPPY_EVENT
+        recommendation_event_id = scenario.invalid_recommendation_id
+    else:
+        recommendation_event = next(
         (
             event
             for event in scenario.events
             if event["id"] == scenario.recommendation_event_id
         ),
         None,
-    )
+        )
+        recommendation_event_id = (
+            recommendation_event["id"] if recommendation_event is not None else None
+        )
     recommendations = []
     if recommendation_event is not None:
         recommendation = {
-            "event_id": recommendation_event["id"],
+            "event_id": recommendation_event_id,
             "name": recommendation_event["name"],
             "category": "music",
             "date": _EVENT_DATE,
@@ -308,6 +329,12 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
         self._record_request(None)
         if path == "/ticketmaster/discovery/v2/events.json":
+            if scenario.ticketmaster_status != HTTPStatus.OK:
+                self._send_json(
+                    scenario.ticketmaster_status,
+                    {"error": "Deterministic Ticketmaster failure"},
+                )
+                return
             self._send_json(HTTPStatus.OK, _ticketmaster_search_payload(scenario))
             return
 

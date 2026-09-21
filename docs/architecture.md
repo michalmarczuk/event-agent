@@ -372,7 +372,7 @@ HTTP, and Camoufox/Playwright objects. Meaningful coverage includes:
 - delivery-before-persistence ordering, atomic history writes, and structured
   daily-run summary logging.
 
-Seven System Tests run the production container against controlled fake external
+Nine System Tests run the production container against controlled fake external
 services. The four System Integration smoke checks are opt-in because they use
 real network services and third-party UI behavior; they are not part of
 deterministic GitHub CI.

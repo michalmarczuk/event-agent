@@ -32,6 +32,11 @@ def main() -> None:
             f"Znajdź najciekawsze wydarzenia dla mnie na najbliższe {DAYS_AHEAD} dni.",
             seen_event_ids=seen_event_ids,
         )
+        if result.discovery_failed:
+            logger.error(
+                "Ticketmaster discovery failed; skipping delivery and history persistence"
+            )
+            raise RuntimeError("Ticketmaster discovery failed")
         recommendations = enrich_ticketmaster_prices(result.recommendations)
         settings = load_settings()
         formatted_message = format_telegram_message(

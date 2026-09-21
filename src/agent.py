@@ -120,6 +120,7 @@ RESPONSE_FORMAT = {
 class AgentRunResult:
     recommendations: list[Recommendation]
     recommended_event_ids: set[str]
+    discovery_failed: bool
 
 
 def _get_function_calls(response):
@@ -244,6 +245,7 @@ def run_agent(
     )
     seen_event_ids = set(seen_event_ids or ())
     known_event_admissions: dict[str, Admission | None] = {}
+    discovery_failed = False
 
     response = client.responses.create(
         model=settings.model,
@@ -262,6 +264,8 @@ def run_agent(
                 seen_event_ids,
                 known_event_admissions,
             )
+            if tool_call.name == "search_events" and isinstance(result, dict):
+                discovery_failed = discovery_failed or result.get("error") is True
             outputs.append(_build_function_call_output(tool_call, result))
 
         response = client.responses.create(
@@ -280,6 +284,7 @@ def run_agent(
     return AgentRunResult(
         recommendations=recommendations,
         recommended_event_ids={recommendation.event_id for recommendation in recommendations},
+        discovery_failed=discovery_failed,
     )
 
 

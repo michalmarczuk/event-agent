@@ -228,6 +228,57 @@ def test_openai_failure_does_not_deliver_or_persist_partial_state() -> None:
     _assert_no_daily_success(stdout)
 
 
+@qase.id(35)
+def test_ticketmaster_failure_does_not_deliver_or_persist() -> None:
+    exit_code, stdout, stderr, journal, data_dir = _run_artifacts(
+        "ticketmaster_failure"
+    )
+
+    assert exit_code != 0
+    assert _requests(
+        journal,
+        "GET",
+        "/ticketmaster/discovery/v2/events.json",
+    )
+    openai_requests = _openai_requests(journal)
+    assert len(openai_requests) == 2
+    tool_outputs = [
+        item
+        for item in openai_requests[1]["body"]["input"]
+        if item.get("type") == "function_call_output"
+    ]
+    assert len(tool_outputs) == 1
+    assert json.loads(tool_outputs[0]["output"])["error"] is True
+    assert not _telegram_requests(journal)
+    assert not (data_dir / "seen_events.json").exists()
+    assert "Brak nowych wydarzeń." not in stdout + stderr
+    _assert_no_secrets(stdout, stderr, journal)
+    _assert_no_daily_success(stdout)
+
+
+@qase.id(36)
+def test_invalid_recommendation_id_does_not_deliver_or_persist() -> None:
+    exit_code, stdout, stderr, journal, data_dir = _run_artifacts(
+        "invalid_recommendation_id"
+    )
+
+    assert exit_code != 0
+    ticketmaster_requests = _requests(
+        journal,
+        "GET",
+        "/ticketmaster/discovery/v2/events.json",
+    )
+    assert ticketmaster_requests
+    openai_requests = _openai_requests(journal)
+    assert len(openai_requests) == 2
+    assert _tool_output_event_ids(openai_requests[1]) == [_HAPPY_EVENT_ID]
+    assert openai_requests[1]["body"].get("previous_response_id")
+    assert not _telegram_requests(journal)
+    assert not (data_dir / "seen_events.json").exists()
+    _assert_no_secrets(stdout, stderr, journal)
+    _assert_no_daily_success(stdout)
+
+
 @qase.id(34)
 def test_multiple_events_persists_only_delivered_recommendation() -> None:
     exit_code, stdout, stderr, journal, data_dir = _run_artifacts("multiple_events")

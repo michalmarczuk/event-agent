@@ -31,6 +31,8 @@ _SYSTEM_CASE_TITLES = {
     "Canceled Ticketmaster events are filtered before recommendation",
     "OpenAI failure prevents delivery and partial history persistence",
     "Only delivered recommendations are persisted from multiple candidates",
+    "Ticketmaster failure prevents delivery and persistence",
+    "Ungrounded recommendation is rejected before delivery",
 }
 
 
@@ -122,7 +124,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     suites = qase.load_cases(qase.CASES_FILE)
     cases = [case for suite in suites for case in suite["cases"]]
 
-    assert len(cases) == 34
+    assert len(cases) == 36
     assert all("qase_id" in case for case in cases)
     catalog_ids = [case["qase_id"] for case in cases]
     assert all(type(case_id) is int and case_id > 0 for case_id in catalog_ids)
@@ -130,7 +132,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
 
     active_cases = [case for case in cases if case["status"] == "active"]
     deprecated_cases = [case for case in cases if case["status"] == "deprecated"]
-    assert len(active_cases) == 11
+    assert len(active_cases) == 13
     assert len(deprecated_cases) == 23
     assert {case["qase_id"] for case in deprecated_cases} == set(range(1, 24))
 
@@ -141,8 +143,8 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
 
     links = _pytest_qase_links()
     linked_ids = [case_id for case_id, _, _ in links]
-    assert len(links) == 11
-    assert len({owner for _, _, owner in links}) == 11
+    assert len(links) == 13
+    assert len({owner for _, _, owner in links}) == 13
     assert Counter(linked_ids) == Counter(
         case["qase_id"] for case in active_cases
     )
@@ -161,7 +163,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     smoke_links = [
         link for link in links if link[1].parent.name == "system_integration"
     ]
-    assert len(system_links) == 7
+    assert len(system_links) == 9
     assert len(smoke_links) == 4
 
     smoke_ids = {
@@ -181,7 +183,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
         for case in active_cases
         if case["title"] in _SYSTEM_CASE_TITLES
     }
-    assert system_ids == set(range(28, 35))
+    assert system_ids == set(range(28, 37))
     paths_by_id = {case_id: path for case_id, path, _ in links}
     assert all(paths_by_id[case_id].parent.name == "system" for case_id in system_ids)
 

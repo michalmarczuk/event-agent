@@ -24,6 +24,7 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
         return SimpleNamespace(
             recommendations=recommendations,
             recommended_event_ids={"new"},
+            discovery_failed=False,
         )
 
     def enrich_ticketmaster_prices(agent_recommendations):
@@ -137,7 +138,9 @@ def test_daily_no_recommendations_sends_info_message_and_preserves_history(
 
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
-            recommendations=[], recommended_event_ids=set()
+            recommendations=[],
+            recommended_event_ids=set(),
+            discovery_failed=False,
         )
     )
     fake_history = SimpleNamespace(
@@ -186,6 +189,77 @@ def test_daily_no_recommendations_sends_info_message_and_preserves_history(
     ]
 
 
+def test_daily_aborts_without_delivery_or_persistence_when_discovery_failed(
+    monkeypatch,
+    caplog,
+    capsys,
+):
+    operations = []
+    seen_ids = {"already-seen"}
+
+    fake_agent = SimpleNamespace(
+        run_agent=lambda prompt, seen_event_ids: (
+            operations.append(("agent", seen_event_ids))
+            or SimpleNamespace(
+                recommendations=[],
+                recommended_event_ids=set(),
+                discovery_failed=True,
+            )
+        )
+    )
+    fake_history = SimpleNamespace(
+        load_seen_event_ids=lambda: seen_ids,
+        save_seen_event_ids=lambda event_ids: operations.append(
+            ("persistence", event_ids)
+        ),
+    )
+    fake_telegram = SimpleNamespace(
+        send_telegram_message=lambda message: operations.append(("telegram", message))
+    )
+    fake_enrichment = SimpleNamespace(
+        enrich_ticketmaster_prices=lambda recommendations: operations.append(
+            ("enrichment", recommendations)
+        ),
+    )
+    fake_formatter = SimpleNamespace(
+        format_telegram_message=lambda *args: operations.append(("formatter", args))
+    )
+    fake_config = SimpleNamespace(load_settings=lambda: None)
+    fake_logging_config = SimpleNamespace(
+        configure_logging=lambda: None,
+        shutdown_logging=lambda: operations.append(("logging_shutdown",)),
+    )
+
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "history", fake_history)
+    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
+    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
+    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+
+    project_root = Path(__file__).resolve().parents[2]
+    with caplog.at_level(logging.INFO), pytest.raises(
+        RuntimeError, match="Ticketmaster discovery failed"
+    ):
+        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+
+    assert operations == [
+        ("agent", seen_ids),
+        ("logging_shutdown",),
+    ]
+    assert capsys.readouterr().out == ""
+    assert any(
+        record.message
+        == "Ticketmaster discovery failed; skipping delivery and history persistence"
+        for record in caplog.records
+    )
+    assert not any(
+        record.__dict__.get("event.action") == "daily_run"
+        for record in caplog.records
+    )
+
+
 def test_daily_does_not_save_history_when_telegram_fails(monkeypatch, caplog):
     saved_ids = []
     logging_shutdowns = []
@@ -193,6 +267,7 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch, caplog):
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
             recommendations=[],
             recommended_event_ids={"new"},
+            discovery_failed=False,
         )
     )
     fake_history = SimpleNamespace(
@@ -251,7 +326,9 @@ def test_daily_does_not_report_success_when_history_save_fails(monkeypatch, capl
 
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
-            recommendations=[], recommended_event_ids={"new"}
+            recommendations=[],
+            recommended_event_ids={"new"},
+            discovery_failed=False,
         )
     )
     fake_history = SimpleNamespace(
@@ -312,7 +389,9 @@ def test_daily_summary_logging_failure_does_not_fail_delivery(monkeypatch):
 
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
-            recommendations=[], recommended_event_ids={"new"}
+            recommendations=[],
+            recommended_event_ids={"new"},
+            discovery_failed=False,
         )
     )
     fake_history = SimpleNamespace(
@@ -378,6 +457,7 @@ def test_daily_persists_only_recommended_event_ids(monkeypatch):
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
             recommendations=recommendations,
             recommended_event_ids={"event-1", "event-2"},
+            discovery_failed=False,
         )
     )
     fake_history = SimpleNamespace(

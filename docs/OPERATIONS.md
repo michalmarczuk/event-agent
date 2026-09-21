@@ -18,7 +18,7 @@ pytest -q tests/component tests/component_integration
 ```
 
 Qase reporting remains off for normal pytest commands. The CI System Tests job
-executes its seven Qase-linked scenarios once, writes a local Qase JSON report
+executes its nine Qase-linked scenarios once, writes a local Qase JSON report
 inside its network-isolated assertion container, and uploads that artifact in a
 separate non-blocking reporting job. The four linked live smoke cases are
 separate Hugging Face runs. The case synchronizer manages catalog definitions
@@ -231,7 +231,7 @@ restoring pytest's exit code. A failed job therefore skips image builds and
 System Tests, remains visible as a failed CI run, and still allows report and
 Pages deployment to complete. System Tests produce both Allure and local
 Qase-format results in one black-box execution. Qase publication imports
-exactly those seven saved results into a `System Tests` run; a publication
+exactly those nine saved results into a `System Tests` run; a publication
 failure is visible but does not block quality gates or Pages deployment.
 Docker, Allure-generation, or Pages failures still leave the same CI run
 failed.
