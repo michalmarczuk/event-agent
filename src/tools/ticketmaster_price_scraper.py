@@ -166,8 +166,8 @@ class TicketmasterPriceScraper:
                     event_url,
                     extra=diagnostics,
                 )
-                page_ready = self._wait_for_ticketmaster_content(page)
                 self._accept_cookies(page)
+                page_ready = self._wait_for_ticketmaster_content(page)
                 body = page.locator("body")
                 body_text = body.inner_text(timeout=self._timeout_ms)
                 page_variant = self._detect_page_variant(page, body_text)

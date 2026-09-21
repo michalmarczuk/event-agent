@@ -73,6 +73,37 @@ def test_scrape_accepts_localized_consent(consent_text, caplog):
     assert f"consent clicked matched text='{consent_text}'" in caplog.text
 
 
+def test_scrape_handles_consent_before_readiness(monkeypatch):
+    call_order = []
+    scraper, page, _ = scraper_for(
+        "Privacy choices",
+        consent_text="Accept Cookies",
+        after_consent="Search For Tickets\nNormal ticket PLN 49",
+    )
+
+    accept_cookies = scraper._accept_cookies
+    wait_for_content = scraper._wait_for_ticketmaster_content
+
+    def record_consent(page):
+        call_order.append("consent")
+        return accept_cookies(page)
+
+    def record_readiness(page):
+        call_order.append("readiness")
+        return wait_for_content(page)
+
+    monkeypatch.setattr(scraper, "_accept_cookies", record_consent)
+    monkeypatch.setattr(
+        scraper,
+        "_wait_for_ticketmaster_content",
+        record_readiness,
+    )
+
+    assert scraper.scrape(_EVENT_URL) == Admission(False, 49, 49, "PLN")
+    assert call_order == ["consent", "readiness"]
+    assert page.wait_for_timeout.call_args_list == [call(1_000)]
+
+
 def test_scrape_continues_without_consent_dialog():
     scraper, page, _ = scraper_for("Search For Tickets\nNormal ticket PLN 49")
 
