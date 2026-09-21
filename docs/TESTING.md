@@ -77,8 +77,11 @@ does not contribute to that coverage report.
 ## SonarQube Cloud
 
 SonarQube Cloud imports `coverage.xml` for static code-quality and security
-analysis. The CI analysis is observational and non-blocking while the baseline
-is reviewed; Quality Gate enforcement is intentionally deferred.
+analysis. The CI sequence is Component + Component Integration Testing,
+coverage generation, SonarQube Cloud analysis and Quality Gate, then Docker
+image builds and System Testing. A failed Quality Gate blocks both image
+builds. System Testing remains black-box and is not a source of code coverage.
+Qase publication remains an independent, non-blocking reporting step.
 
 ## System Testing Architecture
 
@@ -125,8 +128,9 @@ The nine deterministic scenarios cover:
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component +<br/>Component Integration<br/>183"] --> production["Build<br/>production"]
-    component --> test_image["Build<br/>test image"]
+    component["Component +<br/>Component Integration<br/>183"] --> sonar["SonarQube Cloud<br/>Quality Gate"]
+    sonar --> production["Build<br/>production"]
+    sonar --> test_image["Build<br/>test image"]
     production --> system["System tests<br/>9 black-box"]
     test_image --> system
     component --> allure["Allure report<br/>192 results"]
