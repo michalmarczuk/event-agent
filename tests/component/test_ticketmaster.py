@@ -87,7 +87,8 @@ def test_search_events_keeps_non_canceled_statuses(status):
             SearchLocation("Tychy", "u2y0test", 50),
         ).search_events(30)
 
-    assert [event.id for event in events] == [event_id]
+    assert [event.id for event in events] == [f"ticketmaster:{event_id}"]
+    assert [event.source_event_id for event in events] == [event_id]
 
 
 def test_search_events_fetches_later_page_after_first_page_is_seen(caplog):
@@ -107,7 +108,9 @@ def test_search_events_fetches_later_page_after_first_page_is_seen(caplog):
             30, seen_event_ids={f"seen-{index}" for index in range(10)}
         )
 
-    assert [event.id for event in events] == ["new-1", "new-2"]
+    assert [event.id for event in events] == [
+        "ticketmaster:new-1", "ticketmaster:new-2"
+    ]
     assert [call.args[1]["page"] for call in get.call_args_list] == [0, 1]
     summaries = [
         record for record in caplog.records
@@ -149,18 +152,21 @@ def test_search_events_does_not_count_canceled_toward_ten_event_target():
     with patch("src.tools.ticketmaster._get_ticketmaster_data", side_effect=responses) as get:
         events = client.search_events(30, seen_event_ids=set())
 
-    assert [event.id for event in events] == [f"new-{index}" for index in range(10)]
+    assert [event.id for event in events] == [
+        f"ticketmaster:new-{index}" for index in range(10)
+    ]
     assert get.call_count == 2
 
 
-def test_search_events_stops_when_ticketmaster_pages_are_exhausted():
+@pytest.mark.parametrize("seen_event_id", ["seen", "ticketmaster:seen"])
+def test_search_events_stops_when_ticketmaster_pages_are_exhausted(seen_event_id):
     data = _discovery_page(0, 1, [_discovery_event("seen")])
     client = TicketmasterClient(
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
 
     with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data) as get:
-        events = client.search_events(30, seen_event_ids={"seen"})
+        events = client.search_events(30, seen_event_ids={seen_event_id})
 
     assert events == []
     get.assert_called_once()
@@ -178,7 +184,9 @@ def test_search_events_stops_at_five_page_safety_limit():
     with patch("src.tools.ticketmaster._get_ticketmaster_data", side_effect=responses) as get:
         events = client.search_events(30, seen_event_ids=set())
 
-    assert [event.id for event in events] == [f"new-{page}" for page in range(5)]
+    assert [event.id for event in events] == [
+        f"ticketmaster:new-{page}" for page in range(5)
+    ]
     assert [call.args[1]["page"] for call in get.call_args_list] == list(range(5))
 
 
@@ -251,13 +259,14 @@ def test_search_events_uses_api_key_and_parses_events():
     assert get.call_args.kwargs["params"]["classificationName"] == "-sports"
     assert events == [
         Event(
-            id="event-1",
+            id="ticketmaster:event-1",
             name="Concert",
             date="2026-09-10",
             city="Katowice",
             venue=None,
             url="https://example.test/event-1",
             source="ticketmaster",
+            source_event_id="event-1",
         )
     ]
 

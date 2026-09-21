@@ -19,6 +19,7 @@ class Event:
     venue: str | None
     url: str | None
     source: str
+    source_event_id: str
     admission: Admission | None = None
 
 

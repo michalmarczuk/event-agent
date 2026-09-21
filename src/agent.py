@@ -6,6 +6,7 @@ from openai import OpenAI
 
 try:
     from .config import load_settings
+    from .event_identity import parse_event_id
     from .history import filter_unseen_events
     from .tools.registry import (
         create_tool_handlers,
@@ -16,6 +17,7 @@ try:
     from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import load_settings
+    from event_identity import parse_event_id
     from history import filter_unseen_events
     from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
     from tools.ticketmaster import TicketmasterClient
@@ -204,6 +206,11 @@ def _execute_tool_call(
             provider_arguments = arguments | {
                 "seen_event_ids": seen_event_ids | known_events.keys()
             }
+        elif tool_call.name == "get_event_details":
+            source, source_event_id = parse_event_id(arguments["event_id"])
+            if source != "ticketmaster":
+                raise ValueError(f"Unsupported event source: {source}")
+            provider_arguments = arguments | {"event_id": source_event_id}
         result = execute_tool(tool_handlers, tool_call.name, provider_arguments)
     except Exception as exception:
         logger.warning("Tool execution failed tool=%s", tool_call.name)

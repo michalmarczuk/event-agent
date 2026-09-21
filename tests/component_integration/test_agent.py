@@ -88,15 +88,17 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
 
     model_output = agent._build_function_call_output(tool_call, result)
     assert [event["id"] for event in json.loads(model_output["output"])] == [
-        "active-event"
+        "ticketmaster:active-event"
     ]
-    assert set(known_events) == {"active-event"}
+    assert set(known_events) == {"ticketmaster:active-event"}
     with pytest.raises(ValueError, match="unknown event ID"):
         agent._parse_recommendations(
             json.dumps(
                 {
                     "recommendations": [
-                        _BASE_RECOMMENDATION | {"event_id": "canceled-event"}
+                        _BASE_RECOMMENDATION | {
+                            "event_id": "ticketmaster:canceled-event"
+                        }
                     ]
                 }
             ),
@@ -111,7 +113,7 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
     client = TicketmasterClient(
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
-    seen_ids = {f"seen-{index}" for index in range(10)}
+    seen_ids = {f"ticketmaster:seen-{index}" for index in range(10)}
     data = [
         {
             "page": {"number": page_number, "totalPages": 3},
@@ -123,7 +125,10 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
             },
         }
         for page_number, event_ids in enumerate(
-            (sorted(seen_ids), [f"new-{index}" for index in range(10)])
+            (
+                [f"seen-{index}" for index in range(10)],
+                [f"new-{index}" for index in range(10)],
+            )
         )
     ]
     known_events = {}
@@ -144,16 +149,17 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
     assert get.call_count == 2
     assert len(model_visible) == 10
     assert [event["id"] for event in model_visible] == [
-        f"new-{index}" for index in range(10)
+        f"ticketmaster:new-{index}" for index in range(10)
     ]
     assert set(known_events) == {
-        f"new-{index}" for index in range(10)
+        f"ticketmaster:new-{index}" for index in range(10)
     }
 
 
 def test_canceled_event_details_do_not_ground_event_id():
     tool_call = _tool_response(
-        "response-1", "get_event_details", "call-1", event_id="canceled-event"
+        "response-1", "get_event_details", "call-1",
+        event_id="ticketmaster:canceled-event",
     ).output[0]
     ticketmaster_client = TicketmasterClient(
         "ticketmaster-test-key",
@@ -181,7 +187,9 @@ def test_canceled_event_details_do_not_ground_event_id():
             json.dumps(
                 {
                     "recommendations": [
-                        _BASE_RECOMMENDATION | {"event_id": "canceled-event"}
+                        _BASE_RECOMMENDATION | {
+                            "event_id": "ticketmaster:canceled-event"
+                        }
                     ]
                 }
             ),

@@ -25,13 +25,14 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
         "provider-price-note",
     )
     event = Event(
-        "event-1",
+        "ticketmaster:event-1",
         "Concert",
         None,
         "Tychy",
         None,
         "https://www.ticketmaster.pl/event/canonical",
-        "test",
+        "ticketmaster",
+        "event-1",
         admission,
     )
     first_response = _tool_response(
@@ -42,7 +43,7 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     )
 
     result, create, execute_tool_mock = _run_with_tool_results(
-        [first_response, _final_response("event-1")],
+        [first_response, _final_response("ticketmaster:event-1")],
         [[event]],
     )
 
@@ -81,7 +82,7 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
 
     recommendation = result.recommendations[0]
     assert isinstance(recommendation, Recommendation)
-    assert recommendation.event_id == "event-1"
+    assert recommendation.event_id == "ticketmaster:event-1"
     assert recommendation.admission == admission
     assert recommendation.url == event.url
 
@@ -148,7 +149,16 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
         "response-1", "search_events", "call-1", days_ahead=30
     ).output[0]
     events = [
-        Event(event_id, event_id, None, None, None, None, "ticketmaster")
+        Event(
+            f"ticketmaster:{event_id}",
+            event_id,
+            None,
+            None,
+            None,
+            None,
+            "ticketmaster",
+            event_id,
+        )
         for event_id in ["seen", *(f"new-{index}" for index in range(12))]
     ]
     known_events = {}
@@ -157,15 +167,15 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
         result = agent._execute_tool_call(
             {},
             tool_call,
-            seen_event_ids={"seen"},
+            seen_event_ids={"ticketmaster:seen"},
             known_events=known_events,
         )
 
     assert [event["id"] for event in result] == [
-        f"new-{index}" for index in range(10)
+        f"ticketmaster:new-{index}" for index in range(10)
     ]
     assert set(known_events) == {
-        f"new-{index}" for index in range(10)
+        f"ticketmaster:new-{index}" for index in range(10)
     }
 
 
@@ -181,9 +191,9 @@ def test_run_agent_allows_event_returned_by_get_event_details():
                 "response-1",
                 "get_event_details",
                 "call-1",
-                event_id="event-1",
+                event_id="ticketmaster:event-1",
             ),
-            _final_response("event-1"),
+            _final_response("ticketmaster:event-1"),
         ],
         [
             EventDetails(
@@ -197,11 +207,52 @@ def test_run_agent_allows_event_returned_by_get_event_details():
         ],
     )
 
-    assert result.recommended_event_ids == {"event-1"}
+    assert result.recommended_event_ids == {"ticketmaster:event-1"}
     assert result.recommendations[0].admission is None
     assert result.recommendations[0].url == (
         "https://www.ticketmaster.pl/event/details"
     )
+
+
+def test_get_event_details_routes_namespaced_id_to_ticketmaster_provider():
+    tool_call = _tool_response(
+        "response-1",
+        "get_event_details",
+        "call-1",
+        event_id="ticketmaster:abc123",
+    ).output[0]
+    calls = []
+
+    def get_event_details(event_id):
+        calls.append(event_id)
+        return EventDetails(None, None, None, None, None, None)
+
+    known_events = {}
+    agent._execute_tool_call(
+        {"get_event_details": get_event_details},
+        tool_call,
+        seen_event_ids=set(),
+        known_events=known_events,
+    )
+
+    assert calls == ["abc123"]
+    assert set(known_events) == {"ticketmaster:abc123"}
+
+
+@pytest.mark.parametrize("event_id", ["abc123", "mosir_tychy:abc123"])
+def test_get_event_details_rejects_malformed_or_unsupported_global_id(event_id):
+    tool_call = _tool_response(
+        "response-1",
+        "get_event_details",
+        "call-1",
+        event_id=event_id,
+    ).output[0]
+
+    result = agent._execute_tool_call(
+        {}, tool_call, seen_event_ids=set(), known_events={}
+    )
+
+    assert result["error"] is True
 
 
 @pytest.mark.parametrize(
@@ -223,13 +274,14 @@ def test_run_agent_get_event_details_preserves_search_admission_and_url(
 ):
     admission = Admission(False, 40, 60, "PLN")
     event = Event(
-        "event-1",
+        "ticketmaster:event-1",
         "Concert",
         None,
         "Tychy",
         None,
         "https://www.ticketmaster.pl/event/search",
-        "test",
+        "ticketmaster",
+        "event-1",
         admission,
     )
 
@@ -240,9 +292,9 @@ def test_run_agent_get_event_details_preserves_search_admission_and_url(
                 "response-2",
                 "get_event_details",
                 "call-2",
-                event_id="event-1",
+                event_id="ticketmaster:event-1",
             ),
-            _final_response("event-1"),
+            _final_response("ticketmaster:event-1"),
         ],
         [
             [event],
@@ -269,18 +321,27 @@ def test_run_agent_failed_tool_call_does_not_ground_event_id():
                     "response-1",
                     "get_event_details",
                     "call-1",
-                    event_id="event-1",
+                    event_id="ticketmaster:event-1",
                 ),
-                _final_response("event-1"),
+                _final_response("ticketmaster:event-1"),
             ],
             [RuntimeError("Ticketmaster unavailable")],
         )
 
 
 def test_run_agent_filters_seen_and_same_run_events():
-    seen_event = Event("seen", "Already seen", None, None, None, None, "test")
-    new_event = Event("new", "New event", None, None, None, None, "test")
-    latest_event = Event("latest", "Latest event", None, None, None, None, "test")
+    seen_event = Event(
+        "ticketmaster:seen", "Already seen", None, None, None, None,
+        "ticketmaster", "seen",
+    )
+    new_event = Event(
+        "ticketmaster:new", "New event", None, None, None, None,
+        "ticketmaster", "new",
+    )
+    latest_event = Event(
+        "ticketmaster:latest", "Latest event", None, None, None, None,
+        "ticketmaster", "latest",
+    )
 
     result, create, execute_tool_mock = _run_with_tool_results(
         [
@@ -292,7 +353,7 @@ def test_run_agent_filters_seen_and_same_run_events():
             [seen_event, new_event],
             [new_event, latest_event],
         ],
-        seen_event_ids={"seen"},
+        seen_event_ids={"ticketmaster:seen"},
     )
 
     first_output = json.loads(create.call_args_list[1].kwargs["input"][0]["output"])
@@ -304,10 +365,10 @@ def test_run_agent_filters_seen_and_same_run_events():
     assert first_output == [expected_new_event]
     assert second_output == [expected_latest_event]
     assert execute_tool_mock.call_args_list[0].args[2]["seen_event_ids"] == {
-        "seen"
+        "ticketmaster:seen"
     }
     assert execute_tool_mock.call_args_list[1].args[2]["seen_event_ids"] == {
-        "seen", "new"
+        "ticketmaster:seen", "ticketmaster:new"
     }
     assert result.recommendations == []
     assert result.recommended_event_ids == set()
@@ -316,20 +377,22 @@ def test_run_agent_filters_seen_and_same_run_events():
 
 def test_run_agent_returns_only_recommended_event_ids():
     events = [
-        Event("event-1", "First event", None, "Tychy", None, None, "test"),
-        Event("event-2", "Second event", None, "Tychy", None, None, "test"),
-        Event("event-3", "Third event", None, "Tychy", None, None, "test"),
+        Event("ticketmaster:event-1", "First event", None, "Tychy", None, None, "ticketmaster", "event-1"),
+        Event("ticketmaster:event-2", "Second event", None, "Tychy", None, None, "ticketmaster", "event-2"),
+        Event("ticketmaster:event-3", "Third event", None, "Tychy", None, None, "ticketmaster", "event-3"),
     ]
 
     result, _, _ = _run_with_tool_results(
         [
             _tool_response("response-1", "search_events", "call-1", days_ahead=30),
-            _final_response("event-1", "event-2"),
+            _final_response("ticketmaster:event-1", "ticketmaster:event-2"),
         ],
         [events],
     )
 
-    assert result.recommended_event_ids == {"event-1", "event-2"}
+    assert result.recommended_event_ids == {
+        "ticketmaster:event-1", "ticketmaster:event-2"
+    }
     assert not hasattr(result, "discovered_event_ids")
 
 

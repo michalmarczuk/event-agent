@@ -9,9 +9,10 @@ import pytest
 from qase.pytest import qase
 
 
-_HAPPY_EVENT_ID = "event-happy-1"
-_VALID_EVENT_ID = "event-valid-1"
-_MULTIPLE_SELECTED_EVENT_ID = "event-multiple-selected-1"
+_HAPPY_SOURCE_EVENT_ID = "event-happy-1"
+_HAPPY_EVENT_ID = "ticketmaster:event-happy-1"
+_VALID_EVENT_ID = "ticketmaster:event-valid-1"
+_MULTIPLE_SELECTED_EVENT_ID = "ticketmaster:event-multiple-selected-1"
 _TEST_SECRETS = (
     "system-test-openai-key",
     "system-test-ticketmaster-key",
@@ -189,7 +190,9 @@ def test_previously_seen_event_is_not_delivered_again() -> None:
     telegram_requests = _telegram_requests(journal)
     assert len(telegram_requests) == 1
     assert "Fake Concert" not in telegram_requests[0]["body"]["text"]
-    assert json.loads((data_dir / "seen_events.json").read_text()) == [_HAPPY_EVENT_ID]
+    assert json.loads((data_dir / "seen_events.json").read_text()) == [
+        _HAPPY_SOURCE_EVENT_ID
+    ]
     _assert_daily_success(stdout)
 
 
@@ -287,7 +290,7 @@ def test_multiple_events_persists_only_delivered_recommendation() -> None:
     openai_requests = _openai_requests(journal)
     assert len(openai_requests) == 2
     assert _tool_output_event_ids(openai_requests[1]) == [
-        "event-multiple-other-1",
+        "ticketmaster:event-multiple-other-1",
         _MULTIPLE_SELECTED_EVENT_ID,
     ]
     telegram_requests = _telegram_requests(journal)

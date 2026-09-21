@@ -5,9 +5,11 @@ import requests
 
 try:
     from ..config import SearchLocation
+    from ..event_identity import build_event_id
     from ..models import Admission, Event, EventDetails
 except ImportError:  # pragma: no cover - supports script execution
     from config import SearchLocation
+    from event_identity import build_event_id
     from models import Admission, Event, EventDetails
 
 logger = logging.getLogger(__name__)
@@ -99,10 +101,12 @@ class TicketmasterClient:
                 if event.get("dates", {}).get("status", {}).get("code") == "canceled":
                     _log_canceled_event(event["id"])
                     continue
-                if event["id"] in excluded_ids:
+                raw_event_id = event["id"]
+                event_id = build_event_id("ticketmaster", raw_event_id)
+                if event_id in excluded_ids or raw_event_id in excluded_ids:
                     continue
                 discovered_events.append(self._event_from_response(event))
-                excluded_ids.add(event["id"])
+                excluded_ids.add(event_id)
                 if len(discovered_events) == _SEARCH_PAGE_SIZE:
                     break
 
@@ -138,13 +142,14 @@ class TicketmasterClient:
         venue = venues[0] if venues else {}
 
         return Event(
-            id=event["id"],
+            id=build_event_id("ticketmaster", event["id"]),
             name=event["name"],
             date=event.get("dates", {}).get("start", {}).get("localDate"),
             city=venue.get("city", {}).get("name"),
             venue=None,
             url=event.get("url"),
             source="ticketmaster",
+            source_event_id=event["id"],
             admission=self._admission_from_response(event),
         )
 

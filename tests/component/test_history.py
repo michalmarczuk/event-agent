@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 import src.history as history
 from src.models import Event
 
@@ -85,8 +87,8 @@ def test_save_seen_event_ids_replaces_target_atomically(tmp_path, monkeypatch):
 
 def test_filter_unseen_events_returns_all_events_when_all_are_new():
     events = [
-        Event("event-1", "First", None, None, None, None, "test"),
-        Event("event-2", "Second", None, None, None, None, "test"),
+        Event("event-1", "First", None, None, None, None, "test", "event-1"),
+        Event("event-2", "Second", None, None, None, None, "test", "event-2"),
     ]
 
     assert history.filter_unseen_events(events, set()) == events
@@ -94,8 +96,8 @@ def test_filter_unseen_events_returns_all_events_when_all_are_new():
 
 def test_filter_unseen_events_excludes_already_seen_events():
     events = [
-        Event("event-1", "First", None, None, None, None, "test"),
-        Event("event-2", "Second", None, None, None, None, "test"),
+        Event("event-1", "First", None, None, None, None, "test", "event-1"),
+        Event("event-2", "Second", None, None, None, None, "test", "event-2"),
     ]
 
     assert history.filter_unseen_events(events, {"event-1"}) == [events[1]]
@@ -103,8 +105,47 @@ def test_filter_unseen_events_excludes_already_seen_events():
 
 def test_filter_unseen_events_returns_empty_list_when_all_are_seen():
     events = [
-        Event("event-1", "First", None, None, None, None, "test"),
-        Event("event-2", "Second", None, None, None, None, "test"),
+        Event("event-1", "First", None, None, None, None, "test", "event-1"),
+        Event("event-2", "Second", None, None, None, None, "test", "event-2"),
     ]
 
     assert history.filter_unseen_events(events, {"event-1", "event-2"}) == []
+
+
+@pytest.mark.parametrize(
+    "seen_ids",
+    [
+        {"ticketmaster:abc123"},
+        {"abc123"},
+    ],
+)
+def test_filter_unseen_events_accepts_global_and_legacy_ticketmaster_history(
+    seen_ids,
+):
+    event = Event(
+        "ticketmaster:abc123",
+        "Concert",
+        None,
+        None,
+        None,
+        None,
+        "ticketmaster",
+        "abc123",
+    )
+
+    assert history.filter_unseen_events([event], seen_ids) == []
+
+
+def test_filter_unseen_events_does_not_apply_legacy_ticketmaster_alias_to_other_sources():
+    event = Event(
+        "mosir_tychy:abc123",
+        "Local event",
+        None,
+        None,
+        None,
+        None,
+        "mosir_tychy",
+        "abc123",
+    )
+
+    assert history.filter_unseen_events([event], {"abc123"}) == [event]

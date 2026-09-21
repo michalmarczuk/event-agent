@@ -77,7 +77,7 @@ def test_openai_happy_path_returns_tool_call_then_final_recommendation(
                 {
                     "type": "function_call_output",
                     "call_id": tool_call["call_id"],
-                    "output": json.dumps([{"id": "event-happy-1"}]),
+                    "output": json.dumps([{"id": "ticketmaster:event-happy-1"}]),
                 }
             ],
         },
@@ -88,7 +88,7 @@ def test_openai_happy_path_returns_tool_call_then_final_recommendation(
     assert final["output"][0]["type"] == "message"
     assert content["type"] == "output_text"
     assert recommendation_payload["recommendations"][0]["event_id"] == (
-        "event-happy-1"
+        "ticketmaster:event-happy-1"
     )
 
 

@@ -61,5 +61,15 @@ def filter_unseen_events(
     events: list[Event],
     seen_ids: set[str],
 ) -> list[Event]:
-    """Return events whose IDs are not present in the seen ID set."""
-    return [event for event in events if event.id not in seen_ids]
+    """Return events not present in global or compatible legacy history."""
+    return [
+        event
+        for event in events
+        if not _event_was_seen(event, seen_ids)
+    ]
+
+
+def _event_was_seen(event: Event, seen_ids: set[str]) -> bool:
+    if event.id in seen_ids:
+        return True
+    return event.source == "ticketmaster" and event.source_event_id in seen_ids

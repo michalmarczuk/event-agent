@@ -12,15 +12,17 @@ from src.config import SearchLocation, Settings
 def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
     monkeypatch, caplog,
 ):
-    seen_ids = {"seen"}
-    recommendations = [SimpleNamespace(event_id="new", admission=None)]
+    seen_ids = {"ticketmaster:seen"}
+    recommendations = [
+        SimpleNamespace(event_id="ticketmaster:new", admission=None)
+    ]
     operations = []
 
     def run_agent(prompt, seen_event_ids):
         operations.append(("agent", prompt, seen_event_ids))
         return SimpleNamespace(
             recommendations=recommendations,
-            recommended_event_ids={"new"},
+            recommended_event_ids={"ticketmaster:new"},
             discovery_failed=False,
         )
 
@@ -108,7 +110,7 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
         ("enrichment", recommendations),
         ("formatter", "enriched", "Tychy", 50, 30),
         ("telegram", "formatted report"),
-        ("persistence", {"seen", "new"}),
+        ("persistence", {"ticketmaster:seen", "ticketmaster:new"}),
         ("logging_shutdown",),
     ]
     summaries = [
@@ -447,13 +449,15 @@ def test_daily_summary_logging_failure_does_not_fail_delivery(monkeypatch):
 def test_daily_persists_only_recommended_event_ids(monkeypatch):
     saved_ids = []
     recommendations = [
-        SimpleNamespace(event_id="event-1", url=None),
-        SimpleNamespace(event_id="event-2", url=None),
+        SimpleNamespace(event_id="ticketmaster:event-1", url=None),
+        SimpleNamespace(event_id="ticketmaster:event-2", url=None),
     ]
     fake_agent = SimpleNamespace(
         run_agent=lambda prompt, seen_event_ids: SimpleNamespace(
             recommendations=recommendations,
-            recommended_event_ids={"event-1", "event-2"},
+            recommended_event_ids={
+                "ticketmaster:event-1", "ticketmaster:event-2"
+            },
             discovery_failed=False,
         )
     )
@@ -489,4 +493,4 @@ def test_daily_persists_only_recommended_event_ids(monkeypatch):
     project_root = Path(__file__).resolve().parents[2]
     runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
-    assert saved_ids == [{"event-1", "event-2"}]
+    assert saved_ids == [{"ticketmaster:event-1", "ticketmaster:event-2"}]

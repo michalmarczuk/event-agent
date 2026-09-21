@@ -51,6 +51,10 @@ _EVENT_CITY = "Tychy"
 _EVENT_VENUE = "Fake Venue"
 
 
+def _global_ticketmaster_event_id(source_event_id: str) -> str:
+    return f"ticketmaster:{source_event_id}"
+
+
 @dataclass(frozen=True)
 class _Scenario:
     events: tuple[dict[str, Any], ...]
@@ -137,7 +141,7 @@ _SCENARIOS = {
     _SCENARIO_INVALID_RECOMMENDATION_ID: _Scenario(
         (_HAPPY_EVENT,),
         None,
-        invalid_recommendation_id="unknown-event-id",
+        invalid_recommendation_id="ticketmaster:unknown-event-id",
     ),
 }
 _SUPPORTED_SCENARIOS = set(_SCENARIOS)
@@ -199,7 +203,11 @@ def _openai_final_response(
     recommendations = []
     if recommendation_event is not None:
         recommendation = {
-            "event_id": recommendation_event_id,
+            "event_id": (
+                recommendation_event_id
+                if scenario.invalid_recommendation_id is not None
+                else _global_ticketmaster_event_id(recommendation_event_id)
+            ),
             "name": recommendation_event["name"],
             "category": "music",
             "date": _EVENT_DATE,
