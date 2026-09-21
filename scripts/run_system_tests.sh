@@ -105,6 +105,7 @@ run_scenario() {
         --env TELEGRAM_BOT_TOKEN=system-test-telegram-token \
         --env TELEGRAM_CHAT_ID=system-test-chat-id \
         --env TELEGRAM_API_BASE_URL=http://fake-services:8080/telegram \
+        --env MOSIR_TYCHY_BASE_URL=http://fake-services:8080/mosir \
         --env MODEL=fake-model \
         --env EVENT_BASE_LOCATION_NAME=Tychy \
         --env EVENT_BASE_GEOPOINT=u2y0test \

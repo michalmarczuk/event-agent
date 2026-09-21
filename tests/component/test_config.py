@@ -32,6 +32,7 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
         "TELEGRAM_BOT_TOKEN": "telegram-test-token",
         "TELEGRAM_CHAT_ID": "telegram-test-chat",
         "TELEGRAM_API_BASE_URL": "https://telegram.example",
+        "MOSIR_TYCHY_BASE_URL": "https://mosir.example",
         "MODEL": "test-model",
         "EVENT_BASE_LOCATION_NAME": "Tychy",
         "EVENT_BASE_GEOPOINT": "u2y0test",
@@ -55,6 +56,7 @@ def test_load_settings_returns_all_environment_values(monkeypatch):
     assert settings.telegram_bot_token == "telegram-test-token"
     assert settings.telegram_chat_id == "telegram-test-chat"
     assert settings.telegram_api_base_url == "https://telegram.example"
+    assert settings.mosir_tychy_base_url == "https://mosir.example"
     assert settings.model == "test-model"
     assert settings.search_location == SearchLocation("Tychy", "u2y0test", 50)
     assert settings.elastic_otlp_endpoint == "https://elastic.example"
@@ -78,6 +80,7 @@ def test_load_settings_uses_default_external_service_base_urls(monkeypatch):
         "OPENAI_BASE_URL",
         "TICKETMASTER_API_BASE_URL",
         "TELEGRAM_API_BASE_URL",
+        "MOSIR_TYCHY_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config, "load_dotenv", lambda: None)
@@ -90,6 +93,7 @@ def test_load_settings_uses_default_external_service_base_urls(monkeypatch):
         == "https://app.ticketmaster.com/discovery/v2"
     )
     assert settings.telegram_api_base_url == "https://api.telegram.org"
+    assert settings.mosir_tychy_base_url == "https://mosir.tychy.pl"
 
 
 def test_load_settings_reports_one_missing_variable(monkeypatch):

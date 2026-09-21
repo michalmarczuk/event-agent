@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.event_catalog import EventCatalog
 from src.tools.registry import (
     create_tool_handlers,
     execute_tool,
@@ -56,3 +57,13 @@ def test_execute_tool_forwards_arguments_to_handler():
 
     assert captured == {"days_ahead": 30}
     assert result == "result"
+
+
+def test_event_catalog_handler_requires_a_configured_city():
+    client = SimpleNamespace(
+        search_events=lambda days_ahead: [],
+        get_event_details=lambda event_id: None,
+    )
+
+    with pytest.raises(ValueError, match="requires a configured city"):
+        create_tool_handlers(client, EventCatalog([]))

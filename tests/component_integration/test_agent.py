@@ -6,8 +6,83 @@ import requests
 
 import src.agent as agent
 from src.config import SearchLocation
+from src.event_catalog import EventCatalog
+from src.models import Admission, Event
 from src.tools.ticketmaster import TicketmasterClient
 from tests.support.agent_support import _BASE_RECOMMENDATION, _tool_response
+
+
+class _EventSource:
+    def __init__(self, source, events):
+        self.source = source
+        self._events = events
+
+    def search_events(self, city, days_ahead, seen_event_ids=None):
+        return self._events
+
+
+def test_mixed_source_search_grounds_selected_provider_metadata():
+    ticketmaster_event = Event(
+        "ticketmaster:abc123",
+        "Ticketmaster Concert",
+        "2026-09-10",
+        "Tychy",
+        None,
+        "https://www.ticketmaster.pl/event/abc123",
+        "ticketmaster",
+        "abc123",
+        Admission(False, 40, 60, "PLN"),
+    )
+    mosir_event = Event(
+        "mosir_tychy:1836",
+        "MOSiR Concert",
+        "2026-09-10",
+        "Tychy",
+        "Stadion Zimowy",
+        "https://mosir.tychy.pl/1836-mosir-concert",
+        "mosir_tychy",
+        "1836",
+        None,
+    )
+    catalog = EventCatalog(
+        [
+            _EventSource("ticketmaster", [ticketmaster_event]),
+            _EventSource("mosir_tychy", [mosir_event]),
+        ]
+    )
+    tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    known_events = {}
+
+    result = agent._execute_tool_call(
+        {"search_events": lambda days_ahead, seen_event_ids: catalog.search_events(
+            "Tychy", days_ahead, seen_event_ids
+        )},
+        tool_call,
+        seen_event_ids=set(),
+        known_events=known_events,
+    )
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    _BASE_RECOMMENDATION | {"event_id": "mosir_tychy:1836"}
+                ]
+            }
+        ),
+        known_events,
+    )
+
+    assert [event["id"] for event in result] == [
+        "ticketmaster:abc123",
+        "mosir_tychy:1836",
+    ]
+    assert "admission" not in result[0]
+    assert recommendations[0].event_id == "mosir_tychy:1836"
+    assert recommendations[0].source == "mosir_tychy"
+    assert recommendations[0].url == "https://mosir.tychy.pl/1836-mosir-concert"
+    assert recommendations[0].admission is None
 
 
 def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(

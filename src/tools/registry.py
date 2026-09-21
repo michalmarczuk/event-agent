@@ -1,6 +1,12 @@
 from collections.abc import Callable
+from functools import partial
 
-from .ticketmaster import TicketmasterClient
+try:
+    from ..event_catalog import EventCatalog
+    from .ticketmaster import TicketmasterClient
+except ImportError:  # pragma: no cover - supports script execution
+    from event_catalog import EventCatalog
+    from tools.ticketmaster import TicketmasterClient
 
 
 _TOOL_DEFINITIONS = [
@@ -47,10 +53,17 @@ def get_tool_definitions() -> list[dict]:
 
 def create_tool_handlers(
     ticketmaster_client: TicketmasterClient,
+    event_catalog: EventCatalog | None = None,
+    city: str | None = None,
 ) -> dict[str, Callable[..., object]]:
-    """Bind tool names to methods on the configured Ticketmaster client."""
+    """Bind tool names to configured discovery and Ticketmaster detail handlers."""
+    search_events = ticketmaster_client.search_events
+    if event_catalog is not None:
+        if city is None:
+            raise ValueError("An event catalog requires a configured city")
+        search_events = partial(event_catalog.search_events, city)
     return {
-        "search_events": ticketmaster_client.search_events,
+        "search_events": search_events,
         "get_event_details": ticketmaster_client.get_event_details,
     }
 

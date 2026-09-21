@@ -335,6 +335,15 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
             return
 
         self._record_request(None)
+        if path == "/mosir/item/calendar":
+            if scenario.ticketmaster_status != HTTPStatus.OK:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Deterministic MOSiR failure"},
+                )
+                return
+            self._send_json(HTTPStatus.OK, [])
+            return
         if path == "/ticketmaster/discovery/v2/events.json":
             if scenario.ticketmaster_status != HTTPStatus.OK:
                 self._send_json(

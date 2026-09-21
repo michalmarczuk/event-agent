@@ -6,6 +6,7 @@ from openai import OpenAI
 
 try:
     from .config import load_settings
+    from .event_catalog import EventCatalog
     from .event_identity import parse_event_id
     from .history import filter_unseen_events
     from .tools.registry import (
@@ -14,13 +15,18 @@ try:
         get_tool_definitions,
     )
     from .tools.ticketmaster import TicketmasterClient
+    from .sources.mosir_tychy import MosirTychySource
+    from .sources.ticketmaster import TicketmasterSource
     from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import load_settings
+    from event_catalog import EventCatalog
     from event_identity import parse_event_id
     from history import filter_unseen_events
     from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
     from tools.ticketmaster import TicketmasterClient
+    from sources.mosir_tychy import MosirTychySource
+    from sources.ticketmaster import TicketmasterSource
     from models import Admission, Recommendation
 
 
@@ -274,7 +280,17 @@ def run_agent(
         settings.search_location,
         api_base_url=settings.ticketmaster_api_base_url,
     )
-    tool_handlers = create_tool_handlers(ticketmaster_client)
+    event_catalog = EventCatalog(
+        [
+            TicketmasterSource(ticketmaster_client),
+            MosirTychySource(settings.mosir_tychy_base_url),
+        ]
+    )
+    tool_handlers = create_tool_handlers(
+        ticketmaster_client,
+        event_catalog,
+        settings.search_location.name,
+    )
     tool_definitions = get_tool_definitions()
     client = OpenAI(
         api_key=settings.openai_api_key,

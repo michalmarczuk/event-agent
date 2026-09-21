@@ -9,6 +9,7 @@ _DEFAULT_TICKETMASTER_API_BASE_URL = (
     "https://app.ticketmaster.com/discovery/v2"
 )
 _DEFAULT_TELEGRAM_API_BASE_URL = "https://api.telegram.org"
+_DEFAULT_MOSIR_TYCHY_BASE_URL = "https://mosir.tychy.pl"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class Settings:
     openai_base_url: str = _DEFAULT_OPENAI_BASE_URL
     ticketmaster_api_base_url: str = _DEFAULT_TICKETMASTER_API_BASE_URL
     telegram_api_base_url: str = _DEFAULT_TELEGRAM_API_BASE_URL
+    mosir_tychy_base_url: str = _DEFAULT_MOSIR_TYCHY_BASE_URL
     elastic_otlp_endpoint: str | None = None
     elastic_api_key: str | None = None
 
@@ -110,6 +112,10 @@ def load_settings() -> Settings:
         telegram_api_base_url=(
             os.getenv("TELEGRAM_API_BASE_URL")
             or _DEFAULT_TELEGRAM_API_BASE_URL
+        ),
+        mosir_tychy_base_url=(
+            os.getenv("MOSIR_TYCHY_BASE_URL")
+            or _DEFAULT_MOSIR_TYCHY_BASE_URL
         ),
         elastic_otlp_endpoint=elastic_logging.elastic_otlp_endpoint,
         elastic_api_key=elastic_logging.elastic_api_key,
