@@ -208,6 +208,7 @@ def test_run_agent_allows_event_returned_by_get_event_details():
     )
 
     assert result.recommended_event_ids == {"ticketmaster:event-1"}
+    assert result.recommendations[0].source == "ticketmaster"
     assert result.recommendations[0].admission is None
     assert result.recommendations[0].url == (
         "https://www.ticketmaster.pl/event/details"
@@ -236,7 +237,50 @@ def test_get_event_details_routes_namespaced_id_to_ticketmaster_provider():
     )
 
     assert calls == ["abc123"]
-    assert set(known_events) == {"ticketmaster:abc123"}
+    assert known_events == {
+        "ticketmaster:abc123": agent._GroundedEvent(
+            "ticketmaster", "abc123", None, None
+        )
+    }
+
+
+def test_get_event_details_preserves_grounded_source_identity_and_admission():
+    event_id = "ticketmaster:abc123"
+    existing_admission = Admission(False, 40, 60, "PLN")
+    known_events = {
+        event_id: agent._GroundedEvent(
+            "ticketmaster",
+            "abc123",
+            "https://www.ticketmaster.pl/event/search",
+            existing_admission,
+        )
+    }
+    tool_call = _tool_response(
+        "response-1", "get_event_details", "call-1", event_id=event_id
+    ).output[0]
+
+    agent._execute_tool_call(
+        {
+            "get_event_details": lambda event_id: EventDetails(
+                None,
+                None,
+                None,
+                None,
+                None,
+                "https://www.ticketmaster.pl/event/details",
+            )
+        },
+        tool_call,
+        seen_event_ids=set(),
+        known_events=known_events,
+    )
+
+    assert known_events[event_id] == agent._GroundedEvent(
+        "ticketmaster",
+        "abc123",
+        "https://www.ticketmaster.pl/event/details",
+        existing_admission,
+    )
 
 
 @pytest.mark.parametrize("event_id", ["abc123", "mosir_tychy:abc123"])
@@ -398,7 +442,7 @@ def test_run_agent_returns_only_recommended_event_ids():
 
 def test_parse_recommendations_returns_recommendation_model():
     payload = _BASE_RECOMMENDATION | {
-        "event_id": "event-1",
+        "event_id": "ticketmaster:event-1",
         "category": "culture",
         "date": "2026-09-10",
         "time": "19:00",
@@ -408,22 +452,55 @@ def test_parse_recommendations_returns_recommendation_model():
 
     recommendations = agent._parse_recommendations(
         json.dumps({"recommendations": [payload]}),
-        {"event-1": agent._GroundedEvent(None, "https://example.test/event-1")},
+        {
+            "ticketmaster:event-1": agent._GroundedEvent(
+                "ticketmaster",
+                "event-1",
+                "https://example.test/event-1",
+                None,
+            )
+        },
     )
 
     assert isinstance(recommendations[0], Recommendation)
     assert recommendations[0].name == "Concert"
     assert recommendations[0].category == "culture"
     assert recommendations[0].date == "2026-09-10"
+    assert recommendations[0].source == "ticketmaster"
     assert recommendations[0].url == "https://example.test/event-1"
 
 
-def test_recommendation_response_schema_excludes_url():
+def test_recommendation_response_schema_excludes_provider_metadata():
     properties = agent.RESPONSE_FORMAT["format"]["schema"]["properties"]
     recommendation = properties["recommendations"]["items"]
 
     assert "url" not in recommendation["properties"]
     assert "url" not in recommendation["required"]
+    assert "source" not in recommendation["properties"]
+    assert "source" not in recommendation["required"]
+
+
+def test_parse_recommendations_uses_grounded_source_over_model_value():
+    recommendations = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    _BASE_RECOMMENDATION
+                    | {
+                        "event_id": "ticketmaster:event-1",
+                        "source": "mosir_tychy",
+                    }
+                ]
+            }
+        ),
+        {
+            "ticketmaster:event-1": agent._GroundedEvent(
+                "ticketmaster", "event-1", None, None
+            )
+        },
+    )
+
+    assert recommendations[0].source == "ticketmaster"
 
 
 @pytest.mark.parametrize(
@@ -439,7 +516,11 @@ def test_parse_recommendations_uses_source_admission(admission):
                 ]
             }
         ),
-        {"event-1": agent._GroundedEvent(admission, None)},
+        {
+            "event-1": agent._GroundedEvent(
+                "ticketmaster", "event-1", None, admission
+            )
+        },
     )
 
     assert recommendations[0].admission == admission
@@ -451,5 +532,9 @@ def test_parse_recommendations_rejects_more_than_seven():
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
-            {"event-1": agent._GroundedEvent(None, None)},
+            {
+                "event-1": agent._GroundedEvent(
+                    "ticketmaster", "event-1", None, None
+                )
+            },
         )

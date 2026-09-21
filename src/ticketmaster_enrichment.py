@@ -24,7 +24,8 @@ def enrich_ticketmaster_prices(
     ticketmaster_recommendations = [
         recommendation
         for recommendation in recommendations
-        if _is_ticketmaster_url(recommendation.url)
+        if recommendation.source == "ticketmaster"
+        and _is_ticketmaster_url(recommendation.url)
     ]
     if not ticketmaster_recommendations:
         return

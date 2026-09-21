@@ -1,9 +1,10 @@
 from src.models import Recommendation
 
 
-def recommendation(event_id, url, admission=None):
+def recommendation(event_id, url, admission=None, *, source="ticketmaster"):
     return Recommendation(
         event_id=event_id,
+        source=source,
         name=event_id,
         category="music",
         date=None,

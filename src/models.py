@@ -36,6 +36,7 @@ class EventDetails:
 @dataclass
 class Recommendation:
     event_id: str
+    source: str
     name: str
     category: str
     date: str | None

@@ -33,6 +33,19 @@ def test_enrichment_skips_batch_without_ticketmaster_urls():
     assert FakeScraper.instances == []
 
 
+def test_enrichment_never_scrapes_ticketmaster_url_for_other_source():
+    FakeScraper.instances = []
+    recommendation_from_other_source = recommendation(
+        "mosir_tychy:abc123",
+        "https://www.ticketmaster.pl/event/1",
+        source="mosir_tychy",
+    )
+
+    enrich_ticketmaster_prices([recommendation_from_other_source], FakeScraper)
+
+    assert FakeScraper.instances == []
+
+
 def test_enrichment_reuses_one_scraper_for_multiple_recommendations():
     FakeScraper.instances = []
     first = recommendation("first", "https://www.ticketmaster.pl/event/1")
@@ -109,11 +122,15 @@ def test_grounded_canonical_url_reaches_enrichment_and_telegram():
         json.dumps(
             {
                 "recommendations": [
-                    _BASE_RECOMMENDATION | {"event_id": "event"}
+                    _BASE_RECOMMENDATION | {"event_id": "ticketmaster:event"}
                 ]
             }
         ),
-        {"event": agent._GroundedEvent(None, canonical_url)},
+        {
+            "ticketmaster:event": agent._GroundedEvent(
+                "ticketmaster", "event", canonical_url, None
+            )
+        },
     )[0]
     FakeScraper.prices = {
         ticketmaster_recommendation.url: Admission(False, 37.10, 63.60, "PLN")

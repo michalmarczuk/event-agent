@@ -125,8 +125,10 @@ class AgentRunResult:
 
 @dataclass(frozen=True)
 class _GroundedEvent:
-    admission: Admission | None
+    source: str
+    source_event_id: str
     url: str | None
+    admission: Admission | None
 
 
 def _get_function_calls(response):
@@ -176,6 +178,7 @@ def _parse_recommendations(
                 **(
                     recommendation
                     | {
+                        "source": grounded_event.source,
                         "admission": grounded_event.admission,
                         "url": grounded_event.url,
                     }
@@ -232,8 +235,10 @@ def _execute_tool_call(
         )
         for event in result:
             known_events[event.id] = _GroundedEvent(
-                admission=event.admission,
+                source=event.source,
+                source_event_id=event.source_event_id,
                 url=event.url,
+                admission=event.admission,
             )
         # Provider pricing stays in deterministic state, not model-visible data.
         model_visible_events = _serialize_tool_result(result)
@@ -244,6 +249,12 @@ def _execute_tool_call(
         event_id = arguments["event_id"]
         existing = known_events.get(event_id)
         known_events[event_id] = _GroundedEvent(
+            source=existing.source if existing is not None else source,
+            source_event_id=(
+                existing.source_event_id
+                if existing is not None
+                else source_event_id
+            ),
             admission=existing.admission if existing is not None else None,
             url=getattr(result, "url", None)
             or (existing.url if existing is not None else None),
