@@ -68,6 +68,18 @@ tooling, `tests/system/`, `tests/system_integration/`, and the required test
 support modules; it deliberately does not contain `/app/src`. The separate
 `event-agent` image is the production system under test.
 
+## Code Coverage
+
+Component and Component Integration Testing generates branch-aware Python
+coverage for `src/` in `coverage.xml`. System Testing remains black-box and
+does not contribute to that coverage report.
+
+## SonarQube Cloud
+
+SonarQube Cloud imports `coverage.xml` for static code-quality and security
+analysis. The CI analysis is observational and non-blocking while the baseline
+is reviewed; Quality Gate enforcement is intentionally deferred.
+
 ## System Testing Architecture
 
 System Testing does not import or patch application code. The host orchestrates

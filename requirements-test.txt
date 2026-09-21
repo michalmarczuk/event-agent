@@ -1,4 +1,5 @@
 -r requirements.txt
 pytest
+pytest-cov
 allure-pytest
 qase-pytest==9.0.0

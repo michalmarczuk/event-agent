@@ -32,7 +32,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements-test.txt
 
-      - name: Run Component + Component Integration tests with Allure
+      - name: Run Component + Component Integration tests with Allure and coverage
         id: pytest
         env:
           QASE_MODE: off
@@ -42,6 +42,9 @@ jobs:
           pytest -q \
             --alluredir=allure-results \
             --clean-alluredir \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
             tests/component \
             tests/component_integration
           pytest_exit_code=$?
@@ -54,6 +57,14 @@ jobs:
         with:
           name: allure-results
           path: allure-results
+          if-no-files-found: error
+
+      - name: Upload Python coverage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: coverage.xml
           if-no-files-found: error
 
       - name: Preserve pytest failure status
@@ -70,6 +81,35 @@ jobs:
             exit "${PYTEST_EXIT_CODE}"
           fi
           echo "pytest passed."
+
+  sonar-analysis:
+    name: SonarQube Analysis
+    needs: component-tests
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download Python coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: python-coverage
+          path: .
+
+      - name: Run SonarQube Cloud analysis
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
 
   build-production:
     needs: component-tests
