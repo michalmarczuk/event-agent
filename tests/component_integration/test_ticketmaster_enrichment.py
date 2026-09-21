@@ -53,9 +53,9 @@ def test_enrichment_keeps_existing_admission_when_scrape_returns_none():
     )
     FakeScraper.prices = {recommendation_to_update.url: None}
 
-    result = enrich_ticketmaster_prices([recommendation_to_update], FakeScraper)
+    enrich_ticketmaster_prices([recommendation_to_update], FakeScraper)
 
-    assert result[0].admission == existing
+    assert recommendation_to_update.admission == existing
 
 
 def test_enrichment_continues_after_one_scrape_fails():
@@ -79,9 +79,8 @@ def test_enrichment_skips_malformed_url_and_continues():
     FakeScraper.prices = {valid.url: expected}
     recommendations = [malformed, valid]
 
-    result = enrich_ticketmaster_prices(recommendations, FakeScraper)
+    enrich_ticketmaster_prices(recommendations, FakeScraper)
 
-    assert result is recommendations
     assert FakeScraper.instances[0].scraped_urls == [valid.url]
     assert malformed.admission == existing
     assert valid.admission == expected

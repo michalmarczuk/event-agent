@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 def enrich_ticketmaster_prices(
     recommendations: list[Recommendation],
     scraper_factory: Callable[[], TicketmasterPriceScraper] = TicketmasterPriceScraper,
-) -> list[Recommendation]:
+) -> None:
     """Mutate recommendations in place with scraped Ticketmaster admission data.
 
     A successful scrape replaces admission data. A failed or unavailable scrape
-    preserves the existing admission, and the same recommendation list is returned.
+    preserves the existing admission.
     """
     ticketmaster_recommendations = [
         recommendation
@@ -27,7 +27,7 @@ def enrich_ticketmaster_prices(
         if _is_ticketmaster_url(recommendation.url)
     ]
     if not ticketmaster_recommendations:
-        return recommendations
+        return
 
     try:
         with scraper_factory() as scraper:
@@ -49,7 +49,6 @@ def enrich_ticketmaster_prices(
             exc_info=True,
         )
 
-    return recommendations
 
 
 def _is_ticketmaster_url(url: str | None) -> bool:

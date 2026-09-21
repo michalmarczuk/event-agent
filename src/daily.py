@@ -37,7 +37,8 @@ def main() -> None:
                 "Ticketmaster discovery failed; skipping delivery and history persistence"
             )
             raise RuntimeError("Ticketmaster discovery failed")
-        recommendations = enrich_ticketmaster_prices(result.recommendations)
+        enrich_ticketmaster_prices(result.recommendations)
+        recommendations = result.recommendations
         settings = load_settings()
         formatted_message = format_telegram_message(
             recommendations,

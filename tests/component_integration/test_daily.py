@@ -14,9 +14,6 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
 ):
     seen_ids = {"seen"}
     recommendations = [SimpleNamespace(event_id="new", admission=None)]
-    priced_recommendations = [
-        SimpleNamespace(event_id="new", admission="enriched")
-    ]
     operations = []
 
     def run_agent(prompt, seen_event_ids):
@@ -29,8 +26,8 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
 
     def enrich_ticketmaster_prices(agent_recommendations):
         assert agent_recommendations is recommendations
+        agent_recommendations[0].admission = "enriched"
         operations.append(("enrichment", agent_recommendations))
-        return priced_recommendations
 
     def format_telegram_message(
         formatted_recommendations,
@@ -38,7 +35,7 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
         radius_km,
         days_ahead,
     ):
-        assert formatted_recommendations is priced_recommendations
+        assert formatted_recommendations is recommendations
         operations.append(
             (
                 "formatter",
