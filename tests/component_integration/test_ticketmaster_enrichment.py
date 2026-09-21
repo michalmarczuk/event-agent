@@ -1,8 +1,12 @@
+import json
+
 import pytest
 
+import src.agent as agent
 from src.models import Admission
 from src.telegram_formatter import format_telegram_message
 from src.ticketmaster_enrichment import enrich_ticketmaster_prices
+from tests.support.agent_support import _BASE_RECOMMENDATION
 from tests.support.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 
 
@@ -99,10 +103,18 @@ def test_enrichment_skips_malformed_url_and_continues():
     assert valid.admission == expected
 
 
-def test_enrichment_output_is_rendered_in_telegram_message():
-    ticketmaster_recommendation = recommendation(
-        "event", "https://www.ticketmaster.pl/event/1"
-    )
+def test_grounded_canonical_url_reaches_enrichment_and_telegram():
+    canonical_url = "https://www.ticketmaster.pl/event/canonical"
+    ticketmaster_recommendation = agent._parse_recommendations(
+        json.dumps(
+            {
+                "recommendations": [
+                    _BASE_RECOMMENDATION | {"event_id": "event"}
+                ]
+            }
+        ),
+        {"event": agent._GroundedEvent(None, canonical_url)},
+    )[0]
     FakeScraper.prices = {
         ticketmaster_recommendation.url: Admission(False, 37.10, 63.60, "PLN")
     }
@@ -113,3 +125,5 @@ def test_enrichment_output_is_rendered_in_telegram_message():
     )
 
     assert "🎟 37,10–63,60 zł" in message
+    assert FakeScraper.instances[-1].scraped_urls == [canonical_url]
+    assert f'href="{canonical_url}"' in message

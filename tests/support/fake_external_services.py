@@ -207,7 +207,6 @@ def _openai_final_response(
             "city": _EVENT_CITY,
             "venue": _EVENT_VENUE,
             "reason": "Deterministic fake recommendation.",
-            "url": None,
         }
         recommendations.append(recommendation)
     return {

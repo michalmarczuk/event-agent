@@ -91,7 +91,6 @@ RESPONSE_FORMAT = {
                             "city": {"type": ["string", "null"]},
                             "venue": {"type": ["string", "null"]},
                             "reason": {"type": "string"},
-                            "url": {"type": ["string", "null"]},
                         },
                         "required": [
                             "event_id",
@@ -102,7 +101,6 @@ RESPONSE_FORMAT = {
                             "city",
                             "venue",
                             "reason",
-                            "url",
                         ],
                         "additionalProperties": False,
                     },
@@ -121,6 +119,12 @@ class AgentRunResult:
     recommendations: list[Recommendation]
     recommended_event_ids: set[str]
     discovery_failed: bool
+
+
+@dataclass(frozen=True)
+class _GroundedEvent:
+    admission: Admission | None
+    url: str | None
 
 
 def _get_function_calls(response):
@@ -143,7 +147,7 @@ def _serialize_tool_result(result):
 
 def _parse_recommendations(
     output_text: str,
-    known_event_admissions: dict[str, Admission | None],
+    known_events: dict[str, _GroundedEvent],
 ) -> list[Recommendation]:
     payload = json.loads(output_text)
     if not isinstance(payload, dict) or not isinstance(
@@ -160,14 +164,20 @@ def _parse_recommendations(
     parsed = []
     for recommendation in recommendations:
         event_id = recommendation.get("event_id")
-        if event_id not in known_event_admissions:
+        if event_id not in known_events:
             raise ValueError("Agent response contains an unknown event ID")
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
-        source_admission = known_event_admissions[event_id]
+        grounded_event = known_events[event_id]
         parsed.append(
             Recommendation(
-                **(recommendation | {"admission": source_admission})
+                **(
+                    recommendation
+                    | {
+                        "admission": grounded_event.admission,
+                        "url": grounded_event.url,
+                    }
+                )
             )
         )
     return parsed
@@ -185,14 +195,14 @@ def _execute_tool_call(
     tool_handlers,
     tool_call,
     seen_event_ids,
-    known_event_admissions,
+    known_events,
 ):
     arguments = json.loads(tool_call.arguments)
     try:
         provider_arguments = arguments
         if tool_call.name == "search_events":
             provider_arguments = arguments | {
-                "seen_event_ids": seen_event_ids | known_event_admissions.keys()
+                "seen_event_ids": seen_event_ids | known_events.keys()
             }
         result = execute_tool(tool_handlers, tool_call.name, provider_arguments)
     except Exception as exception:
@@ -206,7 +216,7 @@ def _execute_tool_call(
         returned_count = len(result)
         result = filter_unseen_events(
             result,
-            seen_event_ids | known_event_admissions.keys(),
+            seen_event_ids | known_events.keys(),
         )[:10]
         logger.info(
             "search_events returned=%d unseen=%d",
@@ -214,14 +224,23 @@ def _execute_tool_call(
             len(result),
         )
         for event in result:
-            known_event_admissions[event.id] = event.admission
+            known_events[event.id] = _GroundedEvent(
+                admission=event.admission,
+                url=event.url,
+            )
         # Provider pricing stays in deterministic state, not model-visible data.
         model_visible_events = _serialize_tool_result(result)
         for event_data in model_visible_events:
             event_data.pop("admission", None)
         return model_visible_events
     elif tool_call.name == "get_event_details":
-        known_event_admissions.setdefault(arguments["event_id"], None)
+        event_id = arguments["event_id"]
+        existing = known_events.get(event_id)
+        known_events[event_id] = _GroundedEvent(
+            admission=existing.admission if existing is not None else None,
+            url=getattr(result, "url", None)
+            or (existing.url if existing is not None else None),
+        )
 
     return _serialize_tool_result(result)
 
@@ -244,7 +263,7 @@ def run_agent(
         base_url=settings.openai_base_url,
     )
     seen_event_ids = set(seen_event_ids or ())
-    known_event_admissions: dict[str, Admission | None] = {}
+    known_events: dict[str, _GroundedEvent] = {}
     discovery_failed = False
 
     response = client.responses.create(
@@ -262,7 +281,7 @@ def run_agent(
                 tool_handlers,
                 tool_call,
                 seen_event_ids,
-                known_event_admissions,
+                known_events,
             )
             if tool_call.name == "search_events" and isinstance(result, dict):
                 discovery_failed = discovery_failed or result.get("error") is True
@@ -279,7 +298,7 @@ def run_agent(
 
     recommendations = _parse_recommendations(
         response.output_text,
-        known_event_admissions,
+        known_events,
     )
     return AgentRunResult(
         recommendations=recommendations,

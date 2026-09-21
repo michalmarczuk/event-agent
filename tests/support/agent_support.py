@@ -25,7 +25,6 @@ _BASE_RECOMMENDATION = {
     "city": "Tychy",
     "venue": None,
     "reason": "A strong local pick.",
-    "url": None,
 }
 
 

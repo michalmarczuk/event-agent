@@ -25,7 +25,14 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
         "provider-price-note",
     )
     event = Event(
-        "event-1", "Concert", None, "Tychy", None, None, "test", admission
+        "event-1",
+        "Concert",
+        None,
+        "Tychy",
+        None,
+        "https://www.ticketmaster.pl/event/canonical",
+        "test",
+        admission,
     )
     first_response = _tool_response(
         "response-1",
@@ -76,6 +83,7 @@ def test_run_agent_hides_prices_from_model_and_preserves_source_admission():
     assert isinstance(recommendation, Recommendation)
     assert recommendation.event_id == "event-1"
     assert recommendation.admission == admission
+    assert recommendation.url == event.url
 
 
 def test_run_agent_passes_configured_base_urls_to_api_clients():
@@ -143,20 +151,20 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
         Event(event_id, event_id, None, None, None, None, "ticketmaster")
         for event_id in ["seen", *(f"new-{index}" for index in range(12))]
     ]
-    known_event_admissions = {}
+    known_events = {}
 
     with patch.object(agent, "execute_tool", return_value=events):
         result = agent._execute_tool_call(
             {},
             tool_call,
             seen_event_ids={"seen"},
-            known_event_admissions=known_event_admissions,
+            known_events=known_events,
         )
 
     assert [event["id"] for event in result] == [
         f"new-{index}" for index in range(10)
     ]
-    assert set(known_event_admissions) == {
+    assert set(known_events) == {
         f"new-{index}" for index in range(10)
     }
 
@@ -177,17 +185,52 @@ def test_run_agent_allows_event_returned_by_get_event_details():
             ),
             _final_response("event-1"),
         ],
-        [EventDetails("Concert", None, None, None, "Tychy", None)],
+        [
+            EventDetails(
+                "Concert",
+                None,
+                None,
+                None,
+                "Tychy",
+                "https://www.ticketmaster.pl/event/details",
+            )
+        ],
     )
 
     assert result.recommended_event_ids == {"event-1"}
     assert result.recommendations[0].admission is None
+    assert result.recommendations[0].url == (
+        "https://www.ticketmaster.pl/event/details"
+    )
 
 
-def test_run_agent_get_event_details_preserves_search_admission():
+@pytest.mark.parametrize(
+    ("details_url", "expected_url"),
+    [
+        (
+            "https://www.ticketmaster.pl/event/details",
+            "https://www.ticketmaster.pl/event/details",
+        ),
+        (
+            None,
+            "https://www.ticketmaster.pl/event/search",
+        ),
+    ],
+)
+def test_run_agent_get_event_details_preserves_search_admission_and_url(
+    details_url,
+    expected_url,
+):
     admission = Admission(False, 40, 60, "PLN")
     event = Event(
-        "event-1", "Concert", None, "Tychy", None, None, "test", admission
+        "event-1",
+        "Concert",
+        None,
+        "Tychy",
+        None,
+        "https://www.ticketmaster.pl/event/search",
+        "test",
+        admission,
     )
 
     result, _, _ = _run_with_tool_results(
@@ -203,11 +246,19 @@ def test_run_agent_get_event_details_preserves_search_admission():
         ],
         [
             [event],
-            EventDetails("Concert", None, None, None, "Tychy", None),
+            EventDetails(
+                "Concert",
+                None,
+                None,
+                None,
+                "Tychy",
+                details_url,
+            ),
         ],
     )
 
     assert result.recommendations[0].admission == admission
+    assert result.recommendations[0].url == expected_url
 
 
 def test_run_agent_failed_tool_call_does_not_ground_event_id():
@@ -290,18 +341,26 @@ def test_parse_recommendations_returns_recommendation_model():
         "time": "19:00",
         "venue": "Town Hall",
         "reason": "A local concert.",
-        "url": "https://example.test/concert",
     }
 
     recommendations = agent._parse_recommendations(
         json.dumps({"recommendations": [payload]}),
-        {"event-1": None},
+        {"event-1": agent._GroundedEvent(None, "https://example.test/event-1")},
     )
 
     assert isinstance(recommendations[0], Recommendation)
     assert recommendations[0].name == "Concert"
     assert recommendations[0].category == "culture"
     assert recommendations[0].date == "2026-09-10"
+    assert recommendations[0].url == "https://example.test/event-1"
+
+
+def test_recommendation_response_schema_excludes_url():
+    properties = agent.RESPONSE_FORMAT["format"]["schema"]["properties"]
+    recommendation = properties["recommendations"]["items"]
+
+    assert "url" not in recommendation["properties"]
+    assert "url" not in recommendation["required"]
 
 
 @pytest.mark.parametrize(
@@ -317,7 +376,7 @@ def test_parse_recommendations_uses_source_admission(admission):
                 ]
             }
         ),
-        {"event-1": admission},
+        {"event-1": agent._GroundedEvent(admission, None)},
     )
 
     assert recommendations[0].admission == admission
@@ -329,5 +388,5 @@ def test_parse_recommendations_rejects_more_than_seven():
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
-            {"event-1": None},
+            {"event-1": agent._GroundedEvent(None, None)},
         )

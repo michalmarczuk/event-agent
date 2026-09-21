@@ -39,7 +39,7 @@ def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
             tool_handlers,
             tool_call,
             seen_event_ids=set(),
-            known_event_admissions={},
+            known_events={},
         )
 
     model_output = agent._build_function_call_output(tool_call, result)
@@ -76,21 +76,21 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
             ]
         }
     }
-    known_event_admissions = {}
+    known_events = {}
 
     with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
         result = agent._execute_tool_call(
             {"search_events": ticketmaster_client.search_events},
             tool_call,
             seen_event_ids=set(),
-            known_event_admissions=known_event_admissions,
+            known_events=known_events,
         )
 
     model_output = agent._build_function_call_output(tool_call, result)
     assert [event["id"] for event in json.loads(model_output["output"])] == [
         "active-event"
     ]
-    assert set(known_event_admissions) == {"active-event"}
+    assert set(known_events) == {"active-event"}
     with pytest.raises(ValueError, match="unknown event ID"):
         agent._parse_recommendations(
             json.dumps(
@@ -100,7 +100,7 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
                     ]
                 }
             ),
-            known_event_admissions,
+            known_events,
         )
 
 
@@ -126,7 +126,7 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
             (sorted(seen_ids), [f"new-{index}" for index in range(10)])
         )
     ]
-    known_event_admissions = {}
+    known_events = {}
 
     with patch(
         "src.tools.ticketmaster._get_ticketmaster_data", side_effect=data
@@ -135,7 +135,7 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
             {"search_events": client.search_events},
             tool_call,
             seen_event_ids=seen_ids,
-            known_event_admissions=known_event_admissions,
+            known_events=known_events,
         )
 
     model_visible = json.loads(
@@ -146,7 +146,7 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
     assert [event["id"] for event in model_visible] == [
         f"new-{index}" for index in range(10)
     ]
-    assert set(known_event_admissions) == {
+    assert set(known_events) == {
         f"new-{index}" for index in range(10)
     }
 
@@ -164,18 +164,18 @@ def test_canceled_event_details_do_not_ground_event_id():
         "name": "Canceled concert",
         "dates": {"status": {"code": "canceled"}},
     }
-    known_event_admissions = {}
+    known_events = {}
 
     with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
         result = agent._execute_tool_call(
             {"get_event_details": ticketmaster_client.get_event_details},
             tool_call,
             seen_event_ids=set(),
-            known_event_admissions=known_event_admissions,
+            known_events=known_events,
         )
 
     assert result["error"] is True
-    assert known_event_admissions == {}
+    assert known_events == {}
     with pytest.raises(ValueError, match="unknown event ID"):
         agent._parse_recommendations(
             json.dumps(
@@ -185,5 +185,5 @@ def test_canceled_event_details_do_not_ground_event_id():
                     ]
                 }
             ),
-            known_event_admissions,
+            known_events,
         )
