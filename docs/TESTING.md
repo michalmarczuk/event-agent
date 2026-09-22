@@ -12,12 +12,14 @@ high-value black-box and live checks.
 | --- | --- | --- | --- | --- |
 | Component Testing | `tests/component/` | Individual application components and deterministic helpers; dependencies are mocked or faked. | GitHub runner and local pytest. | Ticketmaster response mapping, price parsing, Telegram formatting, history validation. |
 | Component Integration Testing | `tests/component_integration/` | Collaboration between application components while external boundaries remain mocked or faked. | GitHub runner and local pytest. | Daily delivery-before-persistence ordering, enrichment with the formatter, ECS/OTLP logging lifecycle. |
-| System Testing | `tests/system/` | The exact `event-agent` production image, treated as a black box. | Local Docker orchestration and GitHub Actions. | Happy path, Telegram failure, no events, seen-event filtering, canceled-event filtering, OpenAI failure, multiple candidates, Ticketmaster failure, ungrounded recommendation, mixed-source discovery. |
-| System Integration Testing | `tests/system_integration/` | Live connectivity to external systems through the test runtime. | Explicit Hugging Face smoke run. | Ticketmaster Discovery API, Ticketmaster reached through Camoufox, Telegram `getMe`, Elastic OTLP ingestion. |
+| System Testing | `tests/system/` | The exact `event-agent` production image, treated as a black box. | Local Docker orchestration and GitHub Actions. | Happy path, Telegram failure, no events, seen-event filtering, canceled-event filtering, OpenAI failure, multiple candidates, Ticketmaster failure, ungrounded recommendation, mixed-source discovery, partial source failure. |
+| System Integration Testing | `tests/system_integration/` plus the production-image MOSiR probe | Live connectivity to external systems. | Explicit Hugging Face smoke run. | Four pytest checks in the source-free test image (Ticketmaster API, Camoufox, Telegram, Elastic) plus one MOSiR live probe in the production image. |
 
-Component and Component Integration Testing together currently contain 232
-tests. System Testing contains ten black-box scenarios. System Integration
-Testing contains four live smoke checks.
+Component and Component Integration Testing together currently contain 252
+tests. System Testing contains eleven black-box scenarios. System Integration
+Testing contains five logical live checks: four pytest checks in the source-free
+test image and one MOSiR probe in the production image. The current Python
+coverage baseline for `src/` is 94%.
 
 ## Test Purpose and Execution Markers
 
@@ -26,8 +28,8 @@ purpose or execution characteristic; it is not a test level.
 
 | Marker | Meaning | Current use |
 | --- | --- | --- |
-| `smoke` | Fast availability check for a critical external integration. | The four System Integration checks. |
-| `live` | Calls a real external service rather than a mock or fake. | The same four System Integration checks. |
+| `smoke` | Fast availability check for a critical external integration. | The five System Integration checks. |
+| `live` | Calls a real external service rather than a mock or fake. | The same five System Integration checks. |
 
 Qase is not a pytest level or marker. `@qase.id(...)` provides only
 traceability from a representative pytest scenario to a Qase case.
@@ -39,7 +41,7 @@ traceability from a representative pytest scenario to a Qase case.
 flowchart TB
     component["Component<br/>Testing<br/>tests/component"] --> runner["GitHub runner<br/>pytest"]
     component_integration["Component Integration<br/>Testing<br/>tests/component_integration"] --> runner
-    runner --> allure["Allure<br/>232"]
+    runner --> allure["Allure<br/>252 C+CI"]
 
     system["System<br/>Testing<br/>tests/system"] --> sut["event-agent<br/>production<br/>image"]
     fake["event-agent-tests<br/>fake services"] --> sut
@@ -47,10 +49,10 @@ flowchart TB
     artifacts --> assertions["event-agent-tests<br/>assertions"]
     assertions --> allure
     assertions --> qase_local["Local Qase"]
-    qase_local --> qase["Qase<br/>10 cases"]
+    qase_local --> qase["Qase<br/>11 System cases"]
 
     system_integration["System Integration<br/>Testing<br/>tests/system_integration"] --> hf["HF<br/>live services"]
-    hf --> qase_live["Qase + logs<br/>4 cases"]
+    hf --> qase_live["Qase + logs<br/>5 live cases"]
 
     classDef github fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef violet fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -67,6 +69,12 @@ The source-free `event-agent-tests` image contains pytest, Qase and Allure
 tooling, `tests/system/`, `tests/system_integration/`, and the required test
 support modules; it deliberately does not contain `/app/src`. The separate
 `event-agent` image is the production system under test.
+
+System Tests use `SystemScenario` as a small Test Driver/Scenario Driver: one
+typed definition describes the fake Ticketmaster, MOSiR, OpenAI, Telegram, and
+history world. Fake services implement that world; the shell harness controls
+Docker and artifacts; assertions inspect only black-box outcomes such as exit
+status, logs, journal requests, Telegram delivery, and `/app/data`.
 
 ## Code Coverage
 
@@ -96,8 +104,8 @@ flowchart LR
     network --> sut["event-agent<br/>production<br/>container"]
     sut --> artifacts["Artifacts<br/>exit · logs · journal · data"]
     artifacts --> assertions["event-agent-tests<br/>assertions"]
-    assertions --> allure["Allure<br/>10 results"]
-    assertions --> qase["Local Qase<br/>10 cases"]
+    assertions --> allure["Allure<br/>11 results"]
+    assertions --> qase["Local Qase<br/>11 cases"]
 
     classDef lime fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
     classDef boundary fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
@@ -111,7 +119,7 @@ flowchart LR
     class allure,qase report;
 ```
 
-The ten deterministic scenarios cover:
+The eleven deterministic scenarios cover:
 
 1. successful delivery and persistence;
 2. Telegram failure without history persistence;
@@ -123,27 +131,28 @@ The ten deterministic scenarios cover:
 8. Ticketmaster Discovery failure without delivery or history persistence; and
 9. rejection of an ungrounded recommendation before delivery; and
 10. mixed-source discovery with conservative cross-source deduplication and
-    namespaced MOSiR persistence.
+    namespaced MOSiR persistence; and
+11. partial source failure with delivery from the available MOSiR source.
 
 ## Reporting and Traceability
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    component["Component +<br/>Component Integration<br/>232"] --> sonar["SonarQube Cloud<br/>Quality Gate"]
+    component["Component +<br/>Component Integration<br/>252"] --> sonar["SonarQube Cloud<br/>Quality Gate"]
     sonar --> production["Build<br/>production"]
     sonar --> test_image["Build<br/>test image"]
-    production --> system["System tests<br/>10 black-box"]
+    production --> system["System tests<br/>11 black-box"]
     test_image --> system
-    component --> allure["Allure report<br/>242 results"]
+    component --> allure["Allure report<br/>263 results"]
     system --> allure
     allure --> pages["Deploy Pages"]
 
     system --> local["Local Qase"]
     local --> publish["Publish System<br/>Results to Qase"]
-    publish --> qase["Qase System<br/>28–37"]
+    publish --> qase["Qase System<br/>28–38"]
 
-    hf["HF live smoke<br/>4 checks"] --> qase_live["Qase + logs<br/>24–27"]
+    hf["HF live smoke<br/>5 checks"] --> qase_live["Qase + logs<br/>24–27, 39"]
 
     classDef ci fill:#102a43,stroke:#22d3ee,color:#e6f7ff,stroke-width:2px;
     classDef image fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
@@ -156,8 +165,8 @@ flowchart TB
 ```
 
 Allure is the technical report for every automated test executed by GitHub CI:
-232 Component and Component Integration results plus ten System results, for
-242 results in the final report. System Integration live smoke checks are not
+252 Component and Component Integration results plus eleven System results, for
+263 results in the final report. System Integration live smoke checks are not
 run in GitHub CI and are therefore not added to that report; their execution
 details remain in Hugging Face logs.
 
@@ -169,27 +178,16 @@ and does not gate Allure or GitHub Pages deployment.
 
 The active Qase catalog is:
 
-- System Integration: IDs 24–27 for the four live smoke checks.
-- System: IDs 28–37 for the ten black-box System scenarios.
+- System Integration: IDs 24–27 for the four pytest live checks and ID 39 for
+  the MOSiR production-image probe.
+- System: IDs 28–38 for the eleven black-box System scenarios.
 - IDs 1–23: retained as `Deprecated` historical cases; they have no active
   pytest traceability.
 
-The catalog contains 37 cases in total, with 14 active high-level cases.
+The catalog contains 39 cases in total, with 16 active high-level cases.
 
-## Evidence / Reporting Screenshots
-
-No reporting screenshots are committed yet. When capturing real evidence, add
-the image under `docs/images/screenshots/` and replace the corresponding
-placeholder with a linked image.
-
-| Evidence | Suggested file | Capture should show |
-| --- | --- | --- |
-| Allure | `docs/images/screenshots/allure-ci-report.png` | Component Testing, Component Integration Testing, and the ten System Testing results in the same CI report. |
-| Qase | `docs/images/screenshots/qase-active-cases.png` | The 14 active high-level cases: ten System and four System Integration. |
-| GitHub Actions | `docs/images/screenshots/github-actions-ci.png` | Component + Component Integration Tests, both image builds, System Tests, Allure, Pages, and non-blocking Qase publication. |
-
-Do not add placeholder image files: screenshots should document an actual run,
-not a mocked UI.
+No reporting screenshots are committed; live evidence remains in the Allure,
+Qase, and GitHub Actions services.
 
 ## Running Tests Locally
 
@@ -220,7 +218,7 @@ Collect the live System Integration suite without calling external services:
 pytest --collect-only -q tests/system_integration
 ```
 
-Run the four live smoke checks only with intentional opt-in and the required
+Run the four pytest live smoke checks only with intentional opt-in and the required
 runtime configuration:
 
 ```bash

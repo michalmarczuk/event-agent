@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 from copy import deepcopy
 from datetime import datetime
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import json
-import re
 from threading import Lock, Thread
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -20,7 +20,6 @@ from tests.support.system_scenarios import (
     SYSTEM_SCENARIOS,
     SystemScenario,
 )
-
 
 _REDACTED = "[REDACTED]"
 _TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(

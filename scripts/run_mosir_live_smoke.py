@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from src.models import Event
 from src.sources.mosir_tychy import MosirTychySource
 
-
 _SOURCE = "mosir_tychy"
 _CITY = "Tychy"
 _DAYS_AHEAD = 30

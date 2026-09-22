@@ -10,6 +10,9 @@ try:
     from .event_catalog import EventCatalog
     from .event_identity import parse_event_id
     from .history import filter_unseen_events
+    from .models import Admission, Recommendation
+    from .sources.mosir_tychy import MosirTychySource
+    from .sources.ticketmaster import TicketmasterSource
     from .tools.registry import (
         GET_EVENT_DETAILS_TOOL,
         SEARCH_EVENTS_TOOL,
@@ -18,14 +21,14 @@ try:
         get_tool_definitions,
     )
     from .tools.ticketmaster import TicketmasterClient
-    from .sources.mosir_tychy import MosirTychySource
-    from .sources.ticketmaster import TicketmasterSource
-    from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
     from config import Settings, load_settings
     from event_catalog import EventCatalog
     from event_identity import parse_event_id
     from history import filter_unseen_events
+    from models import Admission, Recommendation
+    from sources.mosir_tychy import MosirTychySource
+    from sources.ticketmaster import TicketmasterSource
     from tools.registry import (
         GET_EVENT_DETAILS_TOOL,
         SEARCH_EVENTS_TOOL,
@@ -34,9 +37,6 @@ except ImportError:  # pragma: no cover - supports script execution
         get_tool_definitions,
     )
     from tools.ticketmaster import TicketmasterClient
-    from sources.mosir_tychy import MosirTychySource
-    from sources.ticketmaster import TicketmasterSource
-    from models import Admission, Recommendation
 
 
 AGENT_INSTRUCTIONS = """

@@ -13,7 +13,6 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-
 _API_BASE_URL = "https://api.qase.io/v1"
 _PROJECT_CODE = "EA"
 _REPORTING_FAILURE_EXIT_CODE = 1

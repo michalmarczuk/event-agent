@@ -3,3 +3,5 @@ pytest
 pytest-cov
 allure-pytest
 qase-pytest==9.0.0
+ruff
+PyYAML

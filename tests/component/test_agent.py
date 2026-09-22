@@ -8,8 +8,8 @@ import src.agent as agent
 from src.config import SearchLocation, Settings
 from src.models import Admission, Event, EventDetails, Recommendation
 from tests.support.agent_support import (
-    TEST_SETTINGS,
     _BASE_RECOMMENDATION,
+    TEST_SETTINGS,
     _final_response,
     _run_with_tool_results,
     _tool_response,

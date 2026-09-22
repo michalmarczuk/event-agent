@@ -3,10 +3,9 @@
 import os
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
 import pytest
+from dotenv import load_dotenv
 from qase.pytest import qase
-
 
 _TICKETMASTER_URL = "https://www.ticketmaster.pl/"
 

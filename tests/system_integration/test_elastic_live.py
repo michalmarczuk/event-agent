@@ -3,10 +3,10 @@
 import os
 import time
 
-from dotenv import load_dotenv
 import pytest
-from qase.pytest import qase
 import requests
+from dotenv import load_dotenv
+from qase.pytest import qase
 
 
 def _logs_endpoint(endpoint: str) -> str:

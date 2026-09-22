@@ -2,14 +2,13 @@
 
 import argparse
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import requests
 import yaml
-
 
 API_BASE_URL = "https://api.qase.io/v1"
 PROJECT_CODE = "EA"

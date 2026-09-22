@@ -7,7 +7,6 @@ from unittest.mock import patch
 import src.agent as agent
 from src.config import SearchLocation, Settings
 
-
 TEST_SETTINGS = Settings(
     openai_api_key="openai-test-key",
     ticketmaster_api_key="ticketmaster-test-key",

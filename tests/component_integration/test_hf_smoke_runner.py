@@ -1,9 +1,8 @@
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
-
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "run_hf_smoke.sh"
 _QASE_SCRIPT = (

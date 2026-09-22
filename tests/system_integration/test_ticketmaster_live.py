@@ -2,11 +2,10 @@
 
 import os
 
-from dotenv import load_dotenv
 import pytest
-from qase.pytest import qase
 import requests
-
+from dotenv import load_dotenv
+from qase.pytest import qase
 
 _TICKETMASTER_EVENTS_URL = (
     "https://app.ticketmaster.com/discovery/v2/events.json"

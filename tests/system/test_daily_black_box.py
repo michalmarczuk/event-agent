@@ -8,7 +8,6 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 from qase.pytest import qase
 
-
 _HAPPY_SOURCE_EVENT_ID = "event-happy-1"
 _HAPPY_EVENT_ID = "ticketmaster:event-happy-1"
 _VALID_EVENT_ID = "ticketmaster:event-valid-1"

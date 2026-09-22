@@ -8,7 +8,6 @@ import requests
 from src.config import SearchLocation, Settings
 from src.telegram_notifier import send_telegram_message
 
-
 TEST_SETTINGS = Settings(
     openai_api_key="openai-test-key",
     ticketmaster_api_key="ticketmaster-test-key",

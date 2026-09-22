@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
 from http import HTTPStatus
-import json
 from typing import Any
-
 
 _EVENT_ID = "event-happy-1"
 _EVENT_NAME = "Fake Concert"

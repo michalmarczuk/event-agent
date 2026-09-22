@@ -8,7 +8,6 @@ import requests
 
 from src.sources.mosir_tychy import MosirTychySource, _parse_event_details
 
-
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "mosir_tychy"
 
 

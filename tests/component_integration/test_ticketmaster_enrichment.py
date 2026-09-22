@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 import src.agent as agent
 from src.models import Admission
 from src.telegram_formatter import format_telegram_message

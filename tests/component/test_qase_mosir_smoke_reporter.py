@@ -7,7 +7,6 @@ import pytest
 
 from scripts import qase_mosir_smoke_reporter as reporter_module
 
-
 _TOKEN = "qase-mosir-test-token"
 _WRAPPER = (
     Path(__file__).resolve().parents[2]

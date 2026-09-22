@@ -5,7 +5,6 @@ import yaml
 
 from scripts import sync_qase_cases as qase
 
-
 _TEST_CASES_YAML = """\
 suites:
   - name: Event Discovery

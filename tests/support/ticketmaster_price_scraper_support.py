@@ -4,7 +4,6 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
 
-
 _EVENT_URL = "https://example.test/event"
 
 

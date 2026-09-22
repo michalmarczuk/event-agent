@@ -4,8 +4,8 @@ import time
 from agent import run_agent
 from config import load_settings
 from history import load_seen_event_ids, save_seen_event_ids
-from telegram_notifier import send_telegram_message
 from telegram_formatter import format_telegram_message
+from telegram_notifier import send_telegram_message
 
 try:
     from logging_config import configure_logging, shutdown_logging

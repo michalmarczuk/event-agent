@@ -39,9 +39,10 @@ for the complete flow.
 
 - The ISTQB-aligned test strategy separates Component, Component Integration,
   System, and System Integration Testing. Component and Component Integration
-  Testing has 232 deterministic checks; ten black-box System Tests exercise
-  the exact production container; four live System Integration smoke checks run
-  separately on Hugging Face.
+  Testing has 252 deterministic checks; eleven black-box System Tests exercise
+  the exact production container; five logical live System Integration checks
+  run separately on Hugging Face (four pytest checks in the source-free test
+  image and one MOSiR probe in the production image).
 - Search paginates past previously seen events (up to five API pages), returns
   at most ten eligible candidates, and filters canceled events before the model
   sees them. Same-run duplicates and previously delivered IDs are also filtered.
@@ -52,9 +53,9 @@ for the complete flow.
   provider `Admission`; they do not fail the daily run.
 - History stores recommended IDs only after Telegram delivery succeeds.
 - Component and Component Integration tests use no real OpenAI, Ticketmaster,
-  Telegram, or browser calls. The Allure CI report combines their 232 results
-  with ten System Test results; Qase tracks the ten System and four live
-  System Integration scenarios.
+  Telegram, or browser calls. The Allure CI report combines their 252 results
+  with eleven System Test results (263 total); Qase tracks eleven System and
+  five System Integration scenarios.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#a855f7', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%

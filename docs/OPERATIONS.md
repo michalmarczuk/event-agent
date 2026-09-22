@@ -23,10 +23,11 @@ IDs such as `ticketmaster:abc123` and `mosir_tychy:1836`; existing raw
 Ticketmaster IDs are accepted only for legacy history reads.
 
 Qase reporting remains off for normal pytest commands. The CI System Tests job
-executes its ten Qase-linked scenarios once, writes a local Qase JSON report
+executes its eleven Qase-linked scenarios once, writes a local Qase JSON report
 inside its network-isolated assertion container, and uploads that artifact in a
-separate non-blocking reporting job. The four linked live smoke cases are
-separate Hugging Face runs. The case synchronizer manages catalog definitions
+separate non-blocking reporting job. The four linked pytest live smoke cases
+and the MOSiR production-image probe are separate Hugging Face Qase runs. The
+case synchronizer manages catalog definitions
 only; it does not publish pytest execution results.
 
 ### Qase case catalog administration
@@ -134,6 +135,11 @@ Camoufox uses its API.
   it does not contain `/app/src`, Component tests, or Component Integration
   tests.
 
+The four pytest System Integration checks run from `event-agent-tests`. The
+fifth logical live check, MOSiR discovery, runs as an opt-in probe inside the
+production image so it can use `src.sources.mosir_tychy.MosirTychySource` without
+putting application source into the test image.
+
 Build the image locally:
 
 ```bash
@@ -161,7 +167,7 @@ and `test-runtime` separately to
 `ghcr.io/michalmarczuk/event-agent-tests`. Use the test package for the
 Hugging Face diagnostic job; it does not replace the production tags.
 
-Run the four live smoke checks on Hugging Face without Qase reporting:
+Run the four pytest live smoke checks on Hugging Face without Qase reporting:
 
 ```bash
 hf jobs run \
@@ -177,7 +183,7 @@ hf jobs run \
   /app/scripts/run_hf_smoke.sh
 ```
 
-Publish the same four live checks as a separate Qase run by adding the Qase
+Publish the same four pytest live checks as a separate Qase run by adding the Qase
 token secret and selecting the dedicated entry point:
 
 ```bash
@@ -197,8 +203,9 @@ hf jobs run \
 
 `run_hf_smoke.sh` explicitly keeps Qase disabled. The dedicated Qase runner
 selects only `smoke and live`, maps the token without printing it, and reuses
-the same Tailscale, SOCKS5, Xvfb, cleanup, and exit-code lifecycle. Supply every
-listed service setting and confirm `4 passed, 0 skipped`; missing service
+the same Tailscale, SOCKS5, Xvfb, cleanup, and exit-code lifecycle. The MOSiR
+production-image probe is invoked separately with its own opt-in Qase wrapper.
+Supply every listed service setting and confirm `4 passed, 0 skipped`; missing service
 credentials can intentionally skip their corresponding smoke checks. Prefer
 an immutable `sha-<commit-sha>` image tag for repeatable diagnostics.
 
@@ -236,7 +243,7 @@ restoring pytest's exit code. A failed job therefore skips image builds and
 System Tests, remains visible as a failed CI run, and still allows report and
 Pages deployment to complete. System Tests produce both Allure and local
 Qase-format results in one black-box execution. Qase publication imports
-exactly those ten saved results into a `System Tests` run; a publication
+exactly those eleven saved results into a `System Tests` run; a publication
 failure is visible but does not block quality gates or Pages deployment.
 Docker, Allure-generation, or Pages failures still leave the same CI run
 failed.

@@ -145,7 +145,7 @@ history changes only after a successful recommendation delivery.
 | Module | Responsibility |
 | --- | --- |
 | `src/daily.py` | Compose one scheduled run and enforce delivery-before-persistence ordering. |
-| `src/agent.py` | Orchestrate OpenAI Responses calls, execute tools, filter candidates, ground IDs, and validate structured recommendations. |
+| `src/agent.py` | Bootstrap runtime dependencies, orchestrate the simple Responses function-calling loop, own grounding state, and validate structured recommendations. |
 | `src/models.py` | Define shared event, admission, and recommendation dataclasses. |
 | `src/event_source.py` | Define the small discovery-source contract used by the catalog. |
 | `src/event_catalog.py` | Aggregate source results and apply conservative cross-source deduplication. |
@@ -219,6 +219,16 @@ prohibit mentioning, inventing, inferring, estimating, or reproducing prices.
 The remaining display fields are model-authored free text and are not
 cross-checked against the provider response.
 
+## Agent Composition and Tool Loop
+
+`build_agent_dependencies(settings)` is the explicit composition point for the
+OpenAI client, source adapters, `EventCatalog`, and tool handlers. `run_agent()`
+then owns one straightforward function-calling loop. `_GroundingStore` owns
+provider-authoritative source, raw ID, canonical URL, and Admission state, while
+the typed `_ToolExecutionResult` carries tool success and discovery-failure
+outcomes across that loop. There is no Planner–Executor split or formal state
+machine; grounding and deterministic validation remain explicit boundaries.
+
 ## OpenAI Responses API Tool Loop
 
 The agent creates an initial Responses API request with permanent instructions,
@@ -256,6 +266,12 @@ normalized name, date, city, and venue all match. Same-source IDs are never
 collapsed by this rule. When a Ticketmaster and MOSiR event match, Ticketmaster
 has priority; no fields are mixed between the provider records. The final
 recommendation cap remains seven items.
+
+Discovery failure semantics are explicit: a source returning zero events is a
+successful source result; one failed source with another successful source is
+a degraded but usable catalog result; and failure of every configured source is
+an overall discovery failure. The latter prevents delivery and persistence,
+while partial failure may still deliver events from the available source.
 
 ## Namespaced Identity and Grounding
 
@@ -385,10 +401,14 @@ HTTP, and Camoufox/Playwright objects. Meaningful coverage includes:
 - delivery-before-persistence ordering, atomic history writes, and structured
   daily-run summary logging.
 
-Ten System Tests run the production container against controlled fake external
-services. The four System Integration smoke checks are opt-in because they use
-real network services and third-party UI behavior; they are not part of
-deterministic GitHub CI.
+Eleven System Tests run the production container against controlled fake
+external services. `SystemScenario` is the declarative scenario driver: fake
+services realize its configured world, while the shell harness controls Docker,
+networks, and artifacts and assertions remain black-box. The four pytest System
+Integration smoke checks run in the source-free test image; the fifth logical
+check is the MOSiR probe executed in the production image. All five are opt-in
+because they use real network services and third-party behavior, and none is
+part of deterministic GitHub CI.
 
 ## Intentional Tradeoffs
 

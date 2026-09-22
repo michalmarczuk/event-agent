@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
 import re
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Callable
 from urllib.parse import urljoin

@@ -4,7 +4,6 @@ import os
 
 import pytest
 
-
 _QASE_REPORTING_MODE = "testops"
 
 

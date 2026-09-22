@@ -15,7 +15,6 @@ from tests.support.qase_sync_support import (
     _use_test_catalog,
 )
 
-
 _SMOKE_CASE_TITLES = {
     "Ticketmaster Discovery API is reachable with valid credentials",
     "Telegram bot authentication succeeds without sending a message",

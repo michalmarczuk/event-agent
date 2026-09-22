@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-
 _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 _DEFAULT_TICKETMASTER_API_BASE_URL = (
     "https://app.ticketmaster.com/discovery/v2"

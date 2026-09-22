@@ -2,10 +2,10 @@
 
 import os
 
-from dotenv import load_dotenv
 import pytest
-from qase.pytest import qase
 import requests
+from dotenv import load_dotenv
+from qase.pytest import qase
 
 
 @qase.id(25)
