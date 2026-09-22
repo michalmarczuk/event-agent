@@ -11,6 +11,8 @@ try:
     from .event_identity import parse_event_id
     from .history import filter_unseen_events
     from .tools.registry import (
+        GET_EVENT_DETAILS_TOOL,
+        SEARCH_EVENTS_TOOL,
         create_tool_handlers,
         execute_tool,
         get_tool_definitions,
@@ -24,7 +26,13 @@ except ImportError:  # pragma: no cover - supports script execution
     from event_catalog import EventCatalog
     from event_identity import parse_event_id
     from history import filter_unseen_events
-    from tools.registry import create_tool_handlers, execute_tool, get_tool_definitions
+    from tools.registry import (
+        GET_EVENT_DETAILS_TOOL,
+        SEARCH_EVENTS_TOOL,
+        create_tool_handlers,
+        execute_tool,
+        get_tool_definitions,
+    )
     from tools.ticketmaster import TicketmasterClient
     from sources.mosir_tychy import MosirTychySource
     from sources.ticketmaster import TicketmasterSource
@@ -299,13 +307,13 @@ def _prepare_tool_call_arguments(
     grounding: _GroundingStore,
 ) -> _ToolCallArguments:
     """Convert model arguments into the provider-specific call contract."""
-    if tool_name == "search_events":
+    if tool_name == SEARCH_EVENTS_TOOL:
         return _ToolCallArguments(
             provider_arguments=arguments | {
                 "seen_event_ids": seen_event_ids | grounding.event_ids
             }
         )
-    if tool_name != "get_event_details":
+    if tool_name != GET_EVENT_DETAILS_TOOL:
         return _ToolCallArguments(provider_arguments=arguments)
 
     source, source_event_id = parse_event_id(arguments["event_id"])
@@ -353,9 +361,9 @@ def _process_successful_tool_result(
     grounding: _GroundingStore,
 ) -> object:
     """Apply deterministic post-tool behavior before returning model output."""
-    if tool_name == "search_events":
+    if tool_name == SEARCH_EVENTS_TOOL:
         return _model_visible_search_events(result, seen_event_ids, grounding)
-    if tool_name == "get_event_details":
+    if tool_name == GET_EVENT_DETAILS_TOOL:
         grounding.update_details(
             prepared_arguments.event_id,
             prepared_arguments.source,
@@ -371,7 +379,7 @@ def _tool_failure(tool_name: str, error: Exception) -> _ToolExecutionResult:
     return _ToolExecutionResult(
         output={"error": True, "message": str(error)},
         success=False,
-        discovery_failed=tool_name == "search_events",
+        discovery_failed=tool_name == SEARCH_EVENTS_TOOL,
     )
 
 

@@ -239,7 +239,7 @@ def test_daily_aborts_without_delivery_or_persistence_when_discovery_failed(
 
     project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
-        RuntimeError, match="Ticketmaster discovery failed"
+        RuntimeError, match="Event discovery failed"
     ):
         runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
 
@@ -250,7 +250,7 @@ def test_daily_aborts_without_delivery_or_persistence_when_discovery_failed(
     assert capsys.readouterr().out == ""
     assert any(
         record.message
-        == "Ticketmaster discovery failed; skipping delivery and history persistence"
+        == "Event discovery failed; skipping delivery and history persistence"
         for record in caplog.records
     )
     assert not any(

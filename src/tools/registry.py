@@ -9,10 +9,14 @@ except ImportError:  # pragma: no cover - supports script execution
     from tools.ticketmaster import TicketmasterClient
 
 
+SEARCH_EVENTS_TOOL = "search_events"
+GET_EVENT_DETAILS_TOOL = "get_event_details"
+
+
 _TOOL_DEFINITIONS = [
     {
         "type": "function",
-        "name": "search_events",
+        "name": SEARCH_EVENTS_TOOL,
         "description": "Znajduje wydarzenia w pobliżu skonfigurowanej lokalizacji.",
         "parameters": {
             "type": "object",
@@ -29,7 +33,7 @@ _TOOL_DEFINITIONS = [
     },
     {
         "type": "function",
-        "name": "get_event_details",
+        "name": GET_EVENT_DETAILS_TOOL,
         "description": "Pobiera szczegółowe informacje o konkretnym wydarzeniu.",
         "parameters": {
             "type": "object",
@@ -63,8 +67,8 @@ def create_tool_handlers(
             raise ValueError("An event catalog requires a configured city")
         search_events = partial(event_catalog.search_events, city)
     return {
-        "search_events": search_events,
-        "get_event_details": ticketmaster_client.get_event_details,
+        SEARCH_EVENTS_TOOL: search_events,
+        GET_EVENT_DETAILS_TOOL: ticketmaster_client.get_event_details,
     }
 
 

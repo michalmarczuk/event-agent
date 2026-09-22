@@ -34,9 +34,9 @@ def main() -> None:
         )
         if result.discovery_failed:
             logger.error(
-                "Ticketmaster discovery failed; skipping delivery and history persistence"
+                "Event discovery failed; skipping delivery and history persistence"
             )
-            raise RuntimeError("Ticketmaster discovery failed")
+            raise RuntimeError("Event discovery failed")
         enrich_ticketmaster_prices(result.recommendations)
         recommendations = result.recommendations
         settings = load_settings()
