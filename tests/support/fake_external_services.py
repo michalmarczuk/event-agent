@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from http import HTTPStatus
@@ -16,18 +15,13 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
+from tests.support.system_scenarios import (
+    DEFAULT_SYSTEM_SCENARIO,
+    SYSTEM_SCENARIOS,
+    SystemScenario,
+)
 
-_SCENARIO_HAPPY_PATH = "happy_path"
-_SCENARIO_TELEGRAM_FAILURE = "telegram_failure"
-_SCENARIO_NO_EVENTS = "no_events"
-_SCENARIO_PREVIOUSLY_SEEN_EVENT = "previously_seen_event"
-_SCENARIO_CANCELED_EVENT_FILTERING = "canceled_event_filtering"
-_SCENARIO_OPENAI_FAILURE = "openai_failure"
-_SCENARIO_MULTIPLE_EVENTS = "multiple_events"
-_SCENARIO_TICKETMASTER_FAILURE = "ticketmaster_failure"
-_SCENARIO_PARTIAL_SOURCE_FAILURE = "partial_source_failure"
-_SCENARIO_INVALID_RECOMMENDATION_ID = "invalid_recommendation_id"
-_SCENARIO_MIXED_SOURCE_DISCOVERY = "mixed_source_discovery"
+
 _REDACTED = "[REDACTED]"
 _TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(
     r"^/telegram/bot[^/]+/sendMessage$"
@@ -47,164 +41,13 @@ _SENSITIVE_BODY_KEYS = {
     "token",
 }
 
-_EVENT_ID = "event-happy-1"
-_EVENT_NAME = "Fake Concert"
-_EVENT_DATE = "2030-01-15"
-_EVENT_TIME = "19:00:00"
-_EVENT_CITY = "Tychy"
-_EVENT_VENUE = "Fake Venue"
-
-
 def _global_ticketmaster_event_id(source_event_id: str) -> str:
     return f"ticketmaster:{source_event_id}"
 
 
-@dataclass(frozen=True)
-class _Scenario:
-    events: tuple[dict[str, Any], ...]
-    recommendation_event_id: str | None
-    mosir_events: tuple[dict[str, Any], ...] = ()
-    mosir_recommendation_id: str | None = None
-    use_current_local_date: bool = False
-    telegram_status: HTTPStatus = HTTPStatus.OK
-    openai_status: HTTPStatus = HTTPStatus.OK
-    ticketmaster_status: HTTPStatus = HTTPStatus.OK
-    mosir_status: HTTPStatus = HTTPStatus.OK
-    invalid_recommendation_id: str | None = None
-
-
-def _event_payload(
-    event_id: str = _EVENT_ID,
-    name: str = _EVENT_NAME,
-    status: str = "onsale",
-) -> dict[str, Any]:
-    return {
-        "id": event_id,
-        "name": name,
-        "dates": {
-            "status": {"code": status},
-            "start": {
-                "localDate": _EVENT_DATE,
-                "localTime": _EVENT_TIME,
-            },
-        },
-        "url": None,
-        "_embedded": {
-            "venues": [
-                {
-                    "name": _EVENT_VENUE,
-                    "city": {"name": _EVENT_CITY},
-                }
-            ]
-        },
-    }
-
-
-_HAPPY_EVENT = _event_payload()
-_CANCELED_EVENT = _event_payload(
-    event_id="event-canceled-1",
-    name="Canceled Fake Concert",
-    status="canceled",
-)
-_VALID_EVENT = _event_payload(
-    event_id="event-valid-1",
-    name="Valid Fake Concert",
-)
-_MULTIPLE_OTHER_EVENT = _event_payload(
-    event_id="event-multiple-other-1",
-    name="Other Fake Concert",
-)
-_MULTIPLE_SELECTED_EVENT = _event_payload(
-    event_id="event-multiple-selected-1",
-    name="Selected Fake Concert",
-)
-_MIXED_TICKETMASTER_EVENT = _event_payload(
-    event_id="event-mixed-ticketmaster-1",
-    name="Shared Fake Concert",
-)
-_MIXED_MOSIR_DUPLICATE = {
-    "id": "9001",
-    "name": " shared   fake concert ",
-    "date": _EVENT_DATE,
-    "city": "tychy",
-    "venue": f" {_EVENT_VENUE} ",
-    "detail_path": "/mosir/9001-shared-fake-concert",
-    "url": "https://mosir.tychy.pl/wydarzenia/9001-shared-fake-concert",
-}
-_MIXED_MOSIR_UNIQUE = {
-    "id": "9002",
-    "name": "Unique MOSiR Event",
-    "date": _EVENT_DATE,
-    "city": _EVENT_CITY,
-    "venue": "MOSiR Hall",
-    "detail_path": "/mosir/9002-unique-mosir-event",
-    "url": "https://mosir.tychy.pl/wydarzenia/9002-unique-mosir-event",
-}
-_PARTIAL_FAILURE_MOSIR_EVENT = {
-    "id": "9100",
-    "name": "Available MOSiR Event",
-    "date": _EVENT_DATE,
-    "city": _EVENT_CITY,
-    "venue": "MOSiR Hall",
-    "detail_path": "/mosir/9100-available-mosir-event",
-    "url": "https://mosir.tychy.pl/wydarzenia/9100-available-mosir-event",
-}
-
-_SCENARIOS = {
-    _SCENARIO_HAPPY_PATH: _Scenario((_HAPPY_EVENT,), _EVENT_ID),
-    _SCENARIO_TELEGRAM_FAILURE: _Scenario(
-        (_HAPPY_EVENT,),
-        _EVENT_ID,
-        telegram_status=HTTPStatus.SERVICE_UNAVAILABLE,
-    ),
-    _SCENARIO_NO_EVENTS: _Scenario((), None),
-    _SCENARIO_PREVIOUSLY_SEEN_EVENT: _Scenario((_HAPPY_EVENT,), None),
-    _SCENARIO_CANCELED_EVENT_FILTERING: _Scenario(
-        (_CANCELED_EVENT, _VALID_EVENT),
-        "event-valid-1",
-    ),
-    _SCENARIO_OPENAI_FAILURE: _Scenario(
-        (),
-        None,
-        openai_status=HTTPStatus.SERVICE_UNAVAILABLE,
-    ),
-    _SCENARIO_MULTIPLE_EVENTS: _Scenario(
-        (_MULTIPLE_OTHER_EVENT, _MULTIPLE_SELECTED_EVENT),
-        "event-multiple-selected-1",
-    ),
-    _SCENARIO_TICKETMASTER_FAILURE: _Scenario(
-        (),
-        None,
-        ticketmaster_status=HTTPStatus.SERVICE_UNAVAILABLE,
-        mosir_status=HTTPStatus.SERVICE_UNAVAILABLE,
-    ),
-    _SCENARIO_PARTIAL_SOURCE_FAILURE: _Scenario(
-        (),
-        None,
-        mosir_events=(_PARTIAL_FAILURE_MOSIR_EVENT,),
-        mosir_recommendation_id="9100",
-        use_current_local_date=True,
-        ticketmaster_status=HTTPStatus.SERVICE_UNAVAILABLE,
-    ),
-    _SCENARIO_INVALID_RECOMMENDATION_ID: _Scenario(
-        (_HAPPY_EVENT,),
-        None,
-        invalid_recommendation_id="ticketmaster:unknown-event-id",
-    ),
-    _SCENARIO_MIXED_SOURCE_DISCOVERY: _Scenario(
-        (_MIXED_TICKETMASTER_EVENT,),
-        None,
-        mosir_events=(_MIXED_MOSIR_DUPLICATE, _MIXED_MOSIR_UNIQUE),
-        mosir_recommendation_id="9002",
-        use_current_local_date=True,
-    ),
-}
-_SUPPORTED_SCENARIOS = set(_SCENARIOS)
-
-
-def _ticketmaster_search_payload(scenario: _Scenario) -> dict[str, Any]:
-    events = deepcopy(scenario.events)
-    if scenario.use_current_local_date:
+def _ticketmaster_search_payload(scenario: SystemScenario) -> dict[str, Any]:
+    events = deepcopy(scenario.ticketmaster_events)
+    if scenario.ticketmaster_use_current_local_date:
         for event in events:
             event["dates"]["start"]["localDate"] = _current_local_date()
     return {
@@ -219,11 +62,11 @@ def _ticketmaster_search_payload(scenario: _Scenario) -> dict[str, Any]:
 
 
 def _mosir_calendar_payload(
-    scenario: _Scenario,
+    scenario: SystemScenario,
     year: int | None = None,
     month: int | None = None,
 ) -> list[dict[str, str]]:
-    if scenario.use_current_local_date:
+    if scenario.mosir_use_current_local_date:
         current_date = datetime.now(ZoneInfo("Europe/Warsaw")).date()
         if (year, month) != (current_date.year, current_date.month):
             return []
@@ -240,8 +83,10 @@ def _current_local_date() -> str:
     return datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat()
 
 
-def _effective_mosir_events(scenario: _Scenario) -> tuple[dict[str, Any], ...]:
-    if not scenario.use_current_local_date:
+def _effective_mosir_events(
+    scenario: SystemScenario,
+) -> tuple[dict[str, Any], ...]:
+    if not scenario.mosir_use_current_local_date:
         return scenario.mosir_events
     current_date = _current_local_date()
     return tuple({**event, "date": current_date} for event in scenario.mosir_events)
@@ -289,9 +134,27 @@ def _openai_tool_response(request_body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _ticketmaster_recommendation(
+    event: dict[str, Any],
+    event_id: str,
+) -> dict[str, Any]:
+    venue = event["_embedded"]["venues"][0]
+    start = event["dates"]["start"]
+    return {
+        "event_id": event_id,
+        "name": event["name"],
+        "category": "music",
+        "date": start["localDate"],
+        "time": start.get("localTime"),
+        "city": venue["city"]["name"],
+        "venue": venue["name"],
+        "reason": "Deterministic fake recommendation.",
+    }
+
+
 def _openai_final_response(
     request_body: dict[str, Any],
-    scenario: _Scenario,
+    scenario: SystemScenario,
 ) -> dict[str, Any]:
     if scenario.mosir_recommendation_id is not None:
         recommendation_event = next(
@@ -313,15 +176,15 @@ def _openai_final_response(
         ]
         return _openai_message_response(request_body, recommendations)
 
-    if scenario.invalid_recommendation_id is not None:
-        recommendation_event = _HAPPY_EVENT
-        recommendation_event_id = scenario.invalid_recommendation_id
+    if scenario.ungrounded_recommendation_id is not None:
+        recommendation_event = scenario.ticketmaster_events[0]
+        recommendation_event_id = scenario.ungrounded_recommendation_id
     else:
         recommendation_event = next(
             (
                 event
-                for event in scenario.events
-                if event["id"] == scenario.recommendation_event_id
+                for event in scenario.ticketmaster_events
+                if event["id"] == scenario.ticketmaster_recommendation_id
             ),
             None,
         )
@@ -330,21 +193,14 @@ def _openai_final_response(
         )
     recommendations = []
     if recommendation_event is not None:
-        recommendation = {
-            "event_id": (
-                recommendation_event_id
-                if scenario.invalid_recommendation_id is not None
-                else _global_ticketmaster_event_id(recommendation_event_id)
-            ),
-            "name": recommendation_event["name"],
-            "category": "music",
-            "date": _EVENT_DATE,
-            "time": _EVENT_TIME,
-            "city": _EVENT_CITY,
-            "venue": _EVENT_VENUE,
-            "reason": "Deterministic fake recommendation.",
-        }
-        recommendations.append(recommendation)
+        event_id = (
+            recommendation_event_id
+            if scenario.ungrounded_recommendation_id is not None
+            else _global_ticketmaster_event_id(recommendation_event_id)
+        )
+        recommendations.append(
+            _ticketmaster_recommendation(recommendation_event, event_id)
+        )
     return _openai_message_response(request_body, recommendations)
 
 
@@ -464,7 +320,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
-        scenario = _SCENARIOS[self._scenario]
+        scenario = SYSTEM_SCENARIOS[self._scenario]
         if path == "/health":
             self._send_json(
                 HTTPStatus.OK,
@@ -535,7 +391,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
         matching_event = next(
             (
                 event
-                for event in scenario.events
+                for event in scenario.ticketmaster_events
                 if details_match is not None and event["id"] == details_match.group(1)
             ),
             None,
@@ -548,7 +404,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
-        scenario = _SCENARIOS[self._scenario]
+        scenario = SYSTEM_SCENARIOS[self._scenario]
         if path == "/__reset":
             self._journal.reset()
             self._send_json(HTTPStatus.OK, {"reset": True})
@@ -646,11 +502,11 @@ class FakeExternalServicesServer:
 
     def __init__(
         self,
-        scenario: str = _SCENARIO_HAPPY_PATH,
+        scenario: str = DEFAULT_SYSTEM_SCENARIO,
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
-        if scenario not in _SUPPORTED_SCENARIOS:
+        if scenario not in SYSTEM_SCENARIOS:
             raise ValueError(f"Unsupported fake-services scenario: {scenario}")
 
         self.scenario = scenario
@@ -708,7 +564,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", default=8080, type=int)
-    parser.add_argument("--scenario", default=_SCENARIO_HAPPY_PATH)
+    parser.add_argument("--scenario", default=DEFAULT_SYSTEM_SCENARIO)
     arguments = parser.parse_args()
 
     server = FakeExternalServicesServer(

@@ -18,7 +18,6 @@ artifacts_root="$runtime_dir/artifacts"
 data_root="$runtime_dir/data"
 allure_results_dir=${EVENT_AGENT_SYSTEM_ALLURE_DIR:-$project_root/allure-results/system}
 qase_results_dir=${EVENT_AGENT_SYSTEM_QASE_DIR:-$project_root/qase-results/system}
-scenarios='happy_path telegram_failure no_events previously_seen_event canceled_event_filtering openai_failure multiple_events ticketmaster_failure partial_source_failure invalid_recommendation_id mixed_source_discovery'
 
 mkdir -p "$artifacts_root" "$data_root"
 
@@ -56,6 +55,17 @@ docker run --rm \
 
 docker network create --internal "$network_name" >/dev/null
 
+scenarios=$(docker run --rm \
+    --network none \
+    --entrypoint python \
+    "$test_image" \
+    -m tests.support.system_scenarios --names)
+scenario_count=$(printf '%s\n' "$scenarios" | wc -w | tr -d '[:space:]')
+if [ "$scenario_count" -eq 0 ]; then
+    echo "No System Test scenarios are configured." >&2
+    exit 1
+fi
+
 run_scenario() {
     scenario=$1
     artifacts_dir="$artifacts_root/$scenario"
@@ -63,8 +73,13 @@ run_scenario() {
     mkdir -p "$artifacts_dir" "$data_dir"
     chmod 0777 "$data_dir"
 
-    if [ "$scenario" = "previously_seen_event" ]; then
-        printf '%s\n' '["event-happy-1"]' >"$data_dir/seen_events.json"
+    initial_history=$(docker run --rm \
+        --network none \
+        --entrypoint python \
+        "$test_image" \
+        -m tests.support.system_scenarios --initial-history "$scenario")
+    if [ "$initial_history" != "[]" ]; then
+        printf '%s\n' "$initial_history" >"$data_dir/seen_events.json"
     fi
 
     echo "Starting fake services scenario: $scenario"
@@ -157,7 +172,7 @@ docker run --rm \
 
 qase_report_dir="$qase_results_dir/report"
 qase_result_count=$(find "$qase_report_dir/results" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d '[:space:]')
-if [ "$qase_result_count" -ne 11 ] || [ ! -f "$qase_report_dir/run.json" ]; then
-    echo "Expected local Qase results for exactly eleven System Tests." >&2
+if [ "$qase_result_count" -ne "$scenario_count" ] || [ ! -f "$qase_report_dir/run.json" ]; then
+    echo "Expected local Qase results for every configured System Test." >&2
     exit 1
 fi

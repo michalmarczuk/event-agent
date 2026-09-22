@@ -8,6 +8,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.support.fake_external_services import FakeExternalServicesServer
+from tests.support.system_scenarios import (
+    SYSTEM_SCENARIO_NAMES,
+    get_system_scenario,
+)
 
 
 @pytest.fixture
@@ -51,6 +55,29 @@ def test_health_reports_selected_scenario(fake_services):
 
     assert status == 200
     assert payload == {"status": "ok", "scenario": "happy_path"}
+
+
+def test_partial_source_failure_configuration_keeps_sources_independent():
+    scenario = get_system_scenario("partial_source_failure")
+
+    assert scenario.ticketmaster_status == 503
+    assert scenario.mosir_status == 200
+    assert scenario.mosir_events
+    assert scenario.mosir_recommendation_id == "9100"
+    assert scenario.initial_history == ()
+    assert SYSTEM_SCENARIO_NAMES == (
+        "happy_path",
+        "telegram_failure",
+        "no_events",
+        "previously_seen_event",
+        "canceled_event_filtering",
+        "openai_failure",
+        "multiple_events",
+        "ticketmaster_failure",
+        "partial_source_failure",
+        "invalid_recommendation_id",
+        "mixed_source_discovery",
+    )
 
 
 def test_openai_happy_path_returns_tool_call_then_final_recommendation(
