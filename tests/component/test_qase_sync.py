@@ -23,6 +23,10 @@ _SMOKE_CASE_TITLES = {
     "Elastic OTLP endpoint accepts an event-agent log record",
 }
 
+_PRODUCTION_SMOKE_CASE_TITLES = {
+    "MOSiR Tychy live event discovery",
+}
+
 _SYSTEM_CASE_TITLES = {
     "Daily job happy path completes delivery and persists history",
     "Telegram failure prevents history persistence",
@@ -32,6 +36,7 @@ _SYSTEM_CASE_TITLES = {
     "OpenAI failure prevents delivery and partial history persistence",
     "Only delivered recommendations are persisted from multiple candidates",
     "Ticketmaster failure prevents delivery and persistence",
+    "Partial source failure still delivers available events",
     "Ungrounded recommendation is rejected before delivery",
     "Mixed-source discovery deduplicates and persists canonical event",
 }
@@ -125,7 +130,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     suites = qase.load_cases(qase.CASES_FILE)
     cases = [case for suite in suites for case in suite["cases"]]
 
-    assert len(cases) == 37
+    assert len(cases) == 39
     assert all("qase_id" in case for case in cases)
     catalog_ids = [case["qase_id"] for case in cases]
     assert all(type(case_id) is int and case_id > 0 for case_id in catalog_ids)
@@ -133,7 +138,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
 
     active_cases = [case for case in cases if case["status"] == "active"]
     deprecated_cases = [case for case in cases if case["status"] == "deprecated"]
-    assert len(active_cases) == 14
+    assert len(active_cases) == 16
     assert len(deprecated_cases) == 23
     assert {case["qase_id"] for case in deprecated_cases} == set(range(1, 24))
 
@@ -144,10 +149,12 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
 
     links = _pytest_qase_links()
     linked_ids = [case_id for case_id, _, _ in links]
-    assert len(links) == 14
-    assert len({owner for _, _, owner in links}) == 14
+    assert len(links) == 15
+    assert len({owner for _, _, owner in links}) == 15
     assert Counter(linked_ids) == Counter(
-        case["qase_id"] for case in active_cases
+        case["qase_id"]
+        for case in active_cases
+        if case["title"] not in _PRODUCTION_SMOKE_CASE_TITLES
     )
 
     tests_root = Path(__file__).resolve().parents[1]
@@ -164,7 +171,7 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     smoke_links = [
         link for link in links if link[1].parent.name == "system_integration"
     ]
-    assert len(system_links) == 10
+    assert len(system_links) == 11
     assert len(smoke_links) == 4
 
     smoke_ids = {
@@ -179,12 +186,23 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
         for case_id in smoke_ids
     )
 
+    production_smoke_ids = {
+        case["qase_id"]
+        for case in active_cases
+        if case["title"] in _PRODUCTION_SMOKE_CASE_TITLES
+    }
+    assert production_smoke_ids == {39}
+    production_runner = (
+        tests_root.parent / "scripts" / "run_hf_qase_mosir_live_smoke.sh"
+    )
+    assert "case_id=39" in production_runner.read_text(encoding="utf-8")
+
     system_ids = {
         case["qase_id"]
         for case in active_cases
         if case["title"] in _SYSTEM_CASE_TITLES
     }
-    assert system_ids == set(range(28, 38))
+    assert system_ids == set(range(28, 39))
     paths_by_id = {case_id: path for case_id, path, _ in links}
     assert all(paths_by_id[case_id].parent.name == "system" for case_id in system_ids)
 

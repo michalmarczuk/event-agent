@@ -45,8 +45,17 @@ FROM runtime-base AS production
 
 COPY src/ src/
 COPY data/ data/
-COPY scripts/run_hf.sh scripts/run_hf.sh
-RUN chmod 0755 scripts/run_hf.sh
+COPY \
+    scripts/run_hf.sh \
+    scripts/run_hf_mosir_live_smoke.sh \
+    scripts/run_hf_qase_mosir_live_smoke.sh \
+    scripts/run_mosir_live_smoke.py \
+    scripts/qase_mosir_smoke_reporter.py \
+    scripts/
+RUN chmod 0755 \
+    scripts/run_hf.sh \
+    scripts/run_hf_mosir_live_smoke.sh \
+    scripts/run_hf_qase_mosir_live_smoke.sh
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["xvfb-run", "-a", "python", "src/daily.py"]

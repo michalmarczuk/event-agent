@@ -67,15 +67,15 @@ def test_mixed_source_search_grounds_selected_provider_metadata():
     tool_call = _tool_response(
         "response-1", "search_events", "call-1", days_ahead=30
     ).output[0]
-    known_events = {}
+    grounding = agent._GroundingStore()
 
-    result = agent._execute_tool_call(
+    execution = agent._execute_tool_call(
         {"search_events": lambda days_ahead, seen_event_ids: catalog.search_events(
             "Tychy", days_ahead, seen_event_ids
         )},
         tool_call,
         seen_event_ids=set(),
-        known_events=known_events,
+        grounding=grounding,
     )
     recommendations = agent._parse_recommendations(
         json.dumps(
@@ -86,14 +86,15 @@ def test_mixed_source_search_grounds_selected_provider_metadata():
                 ]
             }
         ),
-        known_events,
+        grounding,
     )
 
-    assert [event["id"] for event in result] == [
+    assert execution.success is True
+    assert [event["id"] for event in execution.output] == [
         "ticketmaster:abc123",
         "mosir_tychy:1837",
     ]
-    assert "admission" not in result[0]
+    assert "admission" not in execution.output[0]
     assert [recommendation.event_id for recommendation in recommendations] == [
         "ticketmaster:abc123",
         "mosir_tychy:1837",
@@ -131,14 +132,15 @@ def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
 
     caplog.set_level("INFO")
     with patch("src.tools.ticketmaster.requests.get", return_value=response):
-        result = agent._execute_tool_call(
+        execution = agent._execute_tool_call(
             tool_handlers,
             tool_call,
             seen_event_ids=set(),
-            known_events={},
+            grounding=agent._GroundingStore(),
         )
 
-    model_output = agent._build_function_call_output(tool_call, result)
+    assert execution.success is False
+    model_output = agent._build_function_call_output(tool_call, execution.output)
     assert json.loads(model_output["output"]) == {
         "error": True,
         "message": "Ticketmaster request failed (HTTP 503)",
@@ -172,21 +174,21 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
             ]
         }
     }
-    known_events = {}
+    grounding = agent._GroundingStore()
 
     with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
-        result = agent._execute_tool_call(
+        execution = agent._execute_tool_call(
             {"search_events": ticketmaster_client.search_events},
             tool_call,
             seen_event_ids=set(),
-            known_events=known_events,
+            grounding=grounding,
         )
 
-    model_output = agent._build_function_call_output(tool_call, result)
+    model_output = agent._build_function_call_output(tool_call, execution.output)
     assert [event["id"] for event in json.loads(model_output["output"])] == [
         "ticketmaster:active-event"
     ]
-    assert set(known_events) == {"ticketmaster:active-event"}
+    assert grounding.event_ids == {"ticketmaster:active-event"}
     with pytest.raises(ValueError, match="unknown event ID"):
         agent._parse_recommendations(
             json.dumps(
@@ -198,7 +200,7 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
                     ]
                 }
             ),
-            known_events,
+            grounding,
         )
 
 
@@ -227,27 +229,27 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
             )
         )
     ]
-    known_events = {}
+    grounding = agent._GroundingStore()
 
     with patch(
         "src.tools.ticketmaster._get_ticketmaster_data", side_effect=data
     ) as get:
-        result = agent._execute_tool_call(
+        execution = agent._execute_tool_call(
             {"search_events": client.search_events},
             tool_call,
             seen_event_ids=seen_ids,
-            known_events=known_events,
+            grounding=grounding,
         )
 
     model_visible = json.loads(
-        agent._build_function_call_output(tool_call, result)["output"]
+        agent._build_function_call_output(tool_call, execution.output)["output"]
     )
     assert get.call_count == 2
     assert len(model_visible) == 10
     assert [event["id"] for event in model_visible] == [
         f"ticketmaster:new-{index}" for index in range(10)
     ]
-    assert set(known_events) == {
+    assert grounding.event_ids == {
         f"ticketmaster:new-{index}" for index in range(10)
     }
 
@@ -266,18 +268,19 @@ def test_canceled_event_details_do_not_ground_event_id():
         "name": "Canceled concert",
         "dates": {"status": {"code": "canceled"}},
     }
-    known_events = {}
+    grounding = agent._GroundingStore()
 
     with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
-        result = agent._execute_tool_call(
+        execution = agent._execute_tool_call(
             {"get_event_details": ticketmaster_client.get_event_details},
             tool_call,
             seen_event_ids=set(),
-            known_events=known_events,
+            grounding=grounding,
         )
 
-    assert result["error"] is True
-    assert known_events == {}
+    assert execution.success is False
+    assert execution.output["error"] is True
+    assert grounding.event_ids == set()
     with pytest.raises(ValueError, match="unknown event ID"):
         agent._parse_recommendations(
             json.dumps(
@@ -289,5 +292,5 @@ def test_canceled_event_details_do_not_ground_event_id():
                     ]
                 }
             ),
-            known_events,
+            grounding,
         )

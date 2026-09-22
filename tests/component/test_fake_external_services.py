@@ -281,6 +281,7 @@ def test_journal_records_method_path_and_safe_body(fake_services):
         **message,
         "chat_id": "[REDACTED]",
     }
+    assert entry["response_status"] == 200
 
 
 def test_journal_redacts_credentials(fake_services):

@@ -1,11 +1,12 @@
 import json
 import logging
 from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any
 
 from openai import OpenAI
 
 try:
-    from .config import load_settings
+    from .config import Settings, load_settings
     from .event_catalog import EventCatalog
     from .event_identity import parse_event_id
     from .history import filter_unseen_events
@@ -19,7 +20,7 @@ try:
     from .sources.ticketmaster import TicketmasterSource
     from .models import Admission, Recommendation
 except ImportError:  # pragma: no cover - supports script execution
-    from config import load_settings
+    from config import Settings, load_settings
     from event_catalog import EventCatalog
     from event_identity import parse_event_id
     from history import filter_unseen_events
@@ -137,6 +138,91 @@ class _GroundedEvent:
     admission: Admission | None
 
 
+@dataclass
+class _GroundingStore:
+    """Own provider-authoritative event data gathered during one agent run."""
+
+    _events: dict[str, _GroundedEvent]
+
+    def __init__(
+        self,
+        events: dict[str, _GroundedEvent] | None = None,
+    ) -> None:
+        self._events = dict(events or {})
+
+    @property
+    def event_ids(self) -> set[str]:
+        """Return IDs already made eligible during this run."""
+        return set(self._events)
+
+    def register_search_events(self, events: list[Any]) -> None:
+        """Ground normalized events returned by a successful search tool call."""
+        for event in events:
+            self._events[event.id] = _GroundedEvent(
+                source=event.source,
+                source_event_id=event.source_event_id,
+                url=event.url,
+                admission=event.admission,
+            )
+
+    def update_details(
+        self,
+        event_id: str,
+        source: str,
+        source_event_id: str,
+        details: Any,
+    ) -> None:
+        """Preserve known provider metadata while accepting a details URL."""
+        existing = self._events.get(event_id)
+        self._events[event_id] = _GroundedEvent(
+            source=existing.source if existing is not None else source,
+            source_event_id=(
+                existing.source_event_id
+                if existing is not None
+                else source_event_id
+            ),
+            admission=existing.admission if existing is not None else None,
+            url=getattr(details, "url", None)
+            or (existing.url if existing is not None else None),
+        )
+
+    def require(self, event_id: str) -> _GroundedEvent:
+        """Return a grounded event or reject an LLM-invented ID."""
+        try:
+            return self._events[event_id]
+        except KeyError as error:
+            raise ValueError("Agent response contains an unknown event ID") from error
+
+
+@dataclass(frozen=True)
+class _ToolCallArguments:
+    """Provider-ready arguments plus optional global details identity."""
+
+    provider_arguments: dict[str, Any]
+    event_id: str | None = None
+    source: str | None = None
+    source_event_id: str | None = None
+
+
+@dataclass(frozen=True)
+class _ToolExecutionResult:
+    """Internal outcome of one tool call before OpenAI output serialization."""
+
+    output: object
+    success: bool
+    discovery_failed: bool = False
+
+
+@dataclass(frozen=True)
+class _AgentDependencies:
+    """Configured collaborators required by one agent conversation."""
+
+    client: OpenAI
+    model: str
+    tool_handlers: dict[str, Any]
+    tool_definitions: list[dict]
+
+
 def _get_function_calls(response):
     return [
         item for item in response.output
@@ -157,8 +243,9 @@ def _serialize_tool_result(result):
 
 def _parse_recommendations(
     output_text: str,
-    known_events: dict[str, _GroundedEvent],
+    grounding: _GroundingStore,
 ) -> list[Recommendation]:
+    """Validate LLM selections and hydrate them with provider-owned metadata."""
     payload = json.loads(output_text)
     if not isinstance(payload, dict) or not isinstance(
         payload.get("recommendations"), list
@@ -174,11 +261,9 @@ def _parse_recommendations(
     parsed = []
     for recommendation in recommendations:
         event_id = recommendation.get("event_id")
-        if event_id not in known_events:
-            raise ValueError("Agent response contains an unknown event ID")
+        grounded_event = grounding.require(event_id)
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
-        grounded_event = known_events[event_id]
         parsed.append(
             Recommendation(
                 **(
@@ -202,79 +287,131 @@ def _build_function_call_output(tool_call, result):
     }
 
 
+def _parse_tool_arguments(tool_call) -> dict[str, Any]:
+    """Decode the raw LLM arguments without changing malformed-input semantics."""
+    return json.loads(tool_call.arguments)
+
+
+def _prepare_tool_call_arguments(
+    tool_name: str,
+    arguments: dict[str, Any],
+    seen_event_ids: set[str],
+    grounding: _GroundingStore,
+) -> _ToolCallArguments:
+    """Convert model arguments into the provider-specific call contract."""
+    if tool_name == "search_events":
+        return _ToolCallArguments(
+            provider_arguments=arguments | {
+                "seen_event_ids": seen_event_ids | grounding.event_ids
+            }
+        )
+    if tool_name != "get_event_details":
+        return _ToolCallArguments(provider_arguments=arguments)
+
+    source, source_event_id = parse_event_id(arguments["event_id"])
+    if source != "ticketmaster":
+        raise ValueError(f"Unsupported event source: {source}")
+    return _ToolCallArguments(
+        provider_arguments=arguments | {"event_id": source_event_id},
+        event_id=arguments["event_id"],
+        source=source,
+        source_event_id=source_event_id,
+    )
+
+
+def _model_visible_search_events(
+    result: object,
+    seen_event_ids: set[str],
+    grounding: _GroundingStore,
+) -> object:
+    """Filter, ground, and remove private Admission data from search output."""
+    if not isinstance(result, list):
+        return _serialize_tool_result(result)
+
+    returned_count = len(result)
+    events = filter_unseen_events(
+        result,
+        seen_event_ids | grounding.event_ids,
+    )[:10]
+    logger.info(
+        "search_events returned=%d unseen=%d",
+        returned_count,
+        len(events),
+    )
+    grounding.register_search_events(events)
+    model_visible_events = _serialize_tool_result(events)
+    for event_data in model_visible_events:
+        event_data.pop("admission", None)
+    return model_visible_events
+
+
+def _process_successful_tool_result(
+    tool_name: str,
+    prepared_arguments: _ToolCallArguments,
+    result: object,
+    seen_event_ids: set[str],
+    grounding: _GroundingStore,
+) -> object:
+    """Apply deterministic post-tool behavior before returning model output."""
+    if tool_name == "search_events":
+        return _model_visible_search_events(result, seen_event_ids, grounding)
+    if tool_name == "get_event_details":
+        grounding.update_details(
+            prepared_arguments.event_id,
+            prepared_arguments.source,
+            prepared_arguments.source_event_id,
+            result,
+        )
+    return _serialize_tool_result(result)
+
+
+def _tool_failure(tool_name: str, error: Exception) -> _ToolExecutionResult:
+    """Return the credential-safe failure shape exposed to the model."""
+    logger.warning("Tool execution failed tool=%s", tool_name)
+    return _ToolExecutionResult(
+        output={"error": True, "message": str(error)},
+        success=False,
+        discovery_failed=tool_name == "search_events",
+    )
+
+
 def _execute_tool_call(
     tool_handlers,
     tool_call,
     seen_event_ids,
-    known_events,
-):
-    arguments = json.loads(tool_call.arguments)
+    grounding: _GroundingStore,
+) -> _ToolExecutionResult:
+    """Execute one tool call and return its typed internal outcome."""
+    arguments = _parse_tool_arguments(tool_call)
     try:
-        provider_arguments = arguments
-        if tool_call.name == "search_events":
-            provider_arguments = arguments | {
-                "seen_event_ids": seen_event_ids | known_events.keys()
-            }
-        elif tool_call.name == "get_event_details":
-            source, source_event_id = parse_event_id(arguments["event_id"])
-            if source != "ticketmaster":
-                raise ValueError(f"Unsupported event source: {source}")
-            provider_arguments = arguments | {"event_id": source_event_id}
-        result = execute_tool(tool_handlers, tool_call.name, provider_arguments)
+        prepared_arguments = _prepare_tool_call_arguments(
+            tool_call.name,
+            arguments,
+            seen_event_ids,
+            grounding,
+        )
+        result = execute_tool(
+            tool_handlers,
+            tool_call.name,
+            prepared_arguments.provider_arguments,
+        )
     except Exception as exception:
-        logger.warning("Tool execution failed tool=%s", tool_call.name)
-        return {
-            "error": True,
-            "message": str(exception),
-        }
+        return _tool_failure(tool_call.name, exception)
 
-    if tool_call.name == "search_events" and isinstance(result, list):
-        returned_count = len(result)
-        result = filter_unseen_events(
+    return _ToolExecutionResult(
+        output=_process_successful_tool_result(
+            tool_call.name,
+            prepared_arguments,
             result,
-            seen_event_ids | known_events.keys(),
-        )[:10]
-        logger.info(
-            "search_events returned=%d unseen=%d",
-            returned_count,
-            len(result),
-        )
-        for event in result:
-            known_events[event.id] = _GroundedEvent(
-                source=event.source,
-                source_event_id=event.source_event_id,
-                url=event.url,
-                admission=event.admission,
-            )
-        # Provider pricing stays in deterministic state, not model-visible data.
-        model_visible_events = _serialize_tool_result(result)
-        for event_data in model_visible_events:
-            event_data.pop("admission", None)
-        return model_visible_events
-    elif tool_call.name == "get_event_details":
-        event_id = arguments["event_id"]
-        existing = known_events.get(event_id)
-        known_events[event_id] = _GroundedEvent(
-            source=existing.source if existing is not None else source,
-            source_event_id=(
-                existing.source_event_id
-                if existing is not None
-                else source_event_id
-            ),
-            admission=existing.admission if existing is not None else None,
-            url=getattr(result, "url", None)
-            or (existing.url if existing is not None else None),
-        )
-
-    return _serialize_tool_result(result)
+            seen_event_ids,
+            grounding,
+        ),
+        success=True,
+    )
 
 
-def run_agent(
-    user_input: str,
-    seen_event_ids: set[str] | None = None,
-) -> AgentRunResult:
-    """Run the agent conversation and return recommendations and their event IDs."""
-    settings = load_settings()
+def build_agent_dependencies(settings: Settings) -> _AgentDependencies:
+    """Build the production collaborators for one agent conversation."""
     ticketmaster_client = TicketmasterClient(
         settings.ticketmaster_api_key,
         settings.search_location,
@@ -286,25 +423,37 @@ def run_agent(
             MosirTychySource(settings.mosir_tychy_base_url),
         ]
     )
-    tool_handlers = create_tool_handlers(
-        ticketmaster_client,
-        event_catalog,
-        settings.search_location.name,
+    return _AgentDependencies(
+        client=OpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+        ),
+        model=settings.model,
+        tool_handlers=create_tool_handlers(
+            ticketmaster_client,
+            event_catalog,
+            settings.search_location.name,
+        ),
+        tool_definitions=get_tool_definitions(),
     )
-    tool_definitions = get_tool_definitions()
-    client = OpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-    )
+
+
+def run_agent(
+    user_input: str,
+    seen_event_ids: set[str] | None = None,
+) -> AgentRunResult:
+    """Run the agent conversation and return recommendations and their event IDs."""
+    settings = load_settings()
+    dependencies = build_agent_dependencies(settings)
     seen_event_ids = set(seen_event_ids or ())
-    known_events: dict[str, _GroundedEvent] = {}
+    grounding = _GroundingStore()
     discovery_failed = False
 
-    response = client.responses.create(
-        model=settings.model,
+    response = dependencies.client.responses.create(
+        model=dependencies.model,
         instructions=AGENT_INSTRUCTIONS,
         input=user_input,
-        tools=tool_definitions,
+        tools=dependencies.tool_definitions,
         text=RESPONSE_FORMAT,
     )
 
@@ -312,27 +461,28 @@ def run_agent(
         outputs = []
         for tool_call in tool_calls:
             result = _execute_tool_call(
-                tool_handlers,
+                dependencies.tool_handlers,
                 tool_call,
                 seen_event_ids,
-                known_events,
+                grounding,
             )
-            if tool_call.name == "search_events" and isinstance(result, dict):
-                discovery_failed = discovery_failed or result.get("error") is True
-            outputs.append(_build_function_call_output(tool_call, result))
+            discovery_failed = discovery_failed or result.discovery_failed
+            outputs.append(
+                _build_function_call_output(tool_call, result.output)
+            )
 
-        response = client.responses.create(
-            model=settings.model,
+        response = dependencies.client.responses.create(
+            model=dependencies.model,
             instructions=AGENT_INSTRUCTIONS,
             previous_response_id=response.id,
             input=outputs,
-            tools=tool_definitions,
+            tools=dependencies.tool_definitions,
             text=RESPONSE_FORMAT,
         )
 
     recommendations = _parse_recommendations(
         response.output_text,
-        known_events,
+        grounding,
     )
     return AgentRunResult(
         recommendations=recommendations,

@@ -562,6 +562,24 @@ suites:
           - action: Inspect seen_events.json and structured ECS logs after delivery.
             expected: History contains only the namespaced MOSiR ID, and the deduplication log identifies Ticketmaster as kept and MOSiR as dropped.
 
+      - title: Partial source failure still delivers available events
+        qase_id: 38
+        description: >-
+          A Ticketmaster Discovery failure must not prevent delivery when the
+          MOSiR source successfully returns a grounded event.
+        preconditions: >-
+          The production image runs against controlled services where
+          Ticketmaster returns HTTP 503 and MOSiR returns one valid event.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container against the partial-source-failure scenario.
+            expected: The container exits successfully after OpenAI selects the available MOSiR event.
+          - action: Inspect the request journal, Telegram message, and seen_events.json.
+            expected: Ticketmaster fails, MOSiR is delivered with its canonical URL, and only its namespaced ID is persisted.
+          - action: Inspect structured ECS logs.
+            expected: Ticketmaster has a failed source search, MOSiR has a successful source search, and the catalog summary has degraded=true.
+
   - name: System Integration
     status: active
     cases:
@@ -627,3 +645,19 @@ suites:
             expected: Elastic accepts the authenticated request with a successful 2xx response.
           - action: Inspect the record submitted by the smoke check.
             expected: It contains smoke service metadata, success event fields, a current timestamp, and the expected message body.
+
+      - title: MOSiR Tychy live event discovery
+        qase_id: 39
+        description: >-
+          This live smoke check validates production MOSiR Tychy discovery from
+          the calendar response through date listings and event detail pages.
+        preconditions: >-
+          The production image can reach mosir.tychy.pl over its normal HTTP
+          network path.
+        priority: medium
+        automated: true
+        steps:
+          - action: Run the production-image MOSiR live smoke probe for Tychy over the next 30 days.
+            expected: The probe succeeds when discovery is healthy, including when the valid window has no events.
+          - action: Inspect any normalized event returned by the live source.
+            expected: It has a namespaced MOSiR ID, canonical mosir.tychy.pl URL, city Tychy, and no Admission value.

@@ -161,20 +161,21 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
         )
         for event_id in ["seen", *(f"new-{index}" for index in range(12))]
     ]
-    known_events = {}
+    grounding = agent._GroundingStore()
 
     with patch.object(agent, "execute_tool", return_value=events):
-        result = agent._execute_tool_call(
+        execution = agent._execute_tool_call(
             {},
             tool_call,
             seen_event_ids={"ticketmaster:seen"},
-            known_events=known_events,
+            grounding=grounding,
         )
 
-    assert [event["id"] for event in result] == [
+    assert execution.success is True
+    assert [event["id"] for event in execution.output] == [
         f"ticketmaster:new-{index}" for index in range(10)
     ]
-    assert set(known_events) == {
+    assert grounding.event_ids == {
         f"ticketmaster:new-{index}" for index in range(10)
     }
 
@@ -182,6 +183,74 @@ def test_model_visible_search_caps_oversized_tool_result_after_filtering():
 def test_run_agent_rejects_unknown_recommendation_id():
     with pytest.raises(ValueError, match="unknown event ID"):
         _run_with_tool_results([_final_response("unknown")], [])
+
+
+def test_tool_execution_preserves_malformed_argument_failure_semantics():
+    malformed_tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    malformed_tool_call.arguments = "{"
+
+    with pytest.raises(json.JSONDecodeError):
+        agent._execute_tool_call(
+            {},
+            malformed_tool_call,
+            seen_event_ids=set(),
+            grounding=agent._GroundingStore(),
+        )
+
+
+def test_tool_execution_preserves_non_event_tool_output():
+    tool_call = _tool_response(
+        "response-1", "other_tool", "call-1", value="test"
+    ).output[0]
+
+    execution = agent._execute_tool_call(
+        {"other_tool": lambda value: {"value": value}},
+        tool_call,
+        seen_event_ids=set(),
+        grounding=agent._GroundingStore(),
+    )
+
+    assert execution.success is True
+    assert execution.output == {"value": "test"}
+
+
+def test_search_tool_preserves_non_list_result_without_grounding():
+    tool_call = _tool_response(
+        "response-1", "search_events", "call-1", days_ahead=30
+    ).output[0]
+    grounding = agent._GroundingStore()
+
+    execution = agent._execute_tool_call(
+        {"search_events": lambda days_ahead, seen_event_ids: {"error": "test"}},
+        tool_call,
+        seen_event_ids=set(),
+        grounding=grounding,
+    )
+
+    assert execution.success is True
+    assert execution.output == {"error": "test"}
+    assert grounding.event_ids == set()
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "recommendations list"),
+        (
+            {"recommendations": [_BASE_RECOMMENDATION | {"event_id": "event-1", "category": "unsupported"}]},
+            "unsupported category",
+        ),
+    ],
+)
+def test_parse_recommendations_rejects_invalid_model_contract(payload, message):
+    grounding = agent._GroundingStore(
+        {"event-1": agent._GroundedEvent("ticketmaster", "event-1", None, None)}
+    )
+
+    with pytest.raises(ValueError, match=message):
+        agent._parse_recommendations(json.dumps(payload), grounding)
 
 
 def test_run_agent_allows_event_returned_by_get_event_details():
@@ -228,38 +297,37 @@ def test_get_event_details_routes_namespaced_id_to_ticketmaster_provider():
         calls.append(event_id)
         return EventDetails(None, None, None, None, None, None)
 
-    known_events = {}
-    agent._execute_tool_call(
+    grounding = agent._GroundingStore()
+    execution = agent._execute_tool_call(
         {"get_event_details": get_event_details},
         tool_call,
         seen_event_ids=set(),
-        known_events=known_events,
+        grounding=grounding,
     )
 
     assert calls == ["abc123"]
-    assert known_events == {
-        "ticketmaster:abc123": agent._GroundedEvent(
-            "ticketmaster", "abc123", None, None
-        )
-    }
+    assert execution.success is True
+    assert grounding.require("ticketmaster:abc123") == agent._GroundedEvent(
+        "ticketmaster", "abc123", None, None
+    )
 
 
 def test_get_event_details_preserves_grounded_source_identity_and_admission():
     event_id = "ticketmaster:abc123"
     existing_admission = Admission(False, 40, 60, "PLN")
-    known_events = {
+    grounding = agent._GroundingStore({
         event_id: agent._GroundedEvent(
             "ticketmaster",
             "abc123",
             "https://www.ticketmaster.pl/event/search",
             existing_admission,
         )
-    }
+    })
     tool_call = _tool_response(
         "response-1", "get_event_details", "call-1", event_id=event_id
     ).output[0]
 
-    agent._execute_tool_call(
+    execution = agent._execute_tool_call(
         {
             "get_event_details": lambda event_id: EventDetails(
                 None,
@@ -272,10 +340,11 @@ def test_get_event_details_preserves_grounded_source_identity_and_admission():
         },
         tool_call,
         seen_event_ids=set(),
-        known_events=known_events,
+        grounding=grounding,
     )
 
-    assert known_events[event_id] == agent._GroundedEvent(
+    assert execution.success is True
+    assert grounding.require(event_id) == agent._GroundedEvent(
         "ticketmaster",
         "abc123",
         "https://www.ticketmaster.pl/event/details",
@@ -292,11 +361,12 @@ def test_get_event_details_rejects_malformed_or_unsupported_global_id(event_id):
         event_id=event_id,
     ).output[0]
 
-    result = agent._execute_tool_call(
-        {}, tool_call, seen_event_ids=set(), known_events={}
+    execution = agent._execute_tool_call(
+        {}, tool_call, seen_event_ids=set(), grounding=agent._GroundingStore()
     )
 
-    assert result["error"] is True
+    assert execution.success is False
+    assert execution.output["error"] is True
 
 
 @pytest.mark.parametrize(
@@ -452,14 +522,14 @@ def test_parse_recommendations_returns_recommendation_model():
 
     recommendations = agent._parse_recommendations(
         json.dumps({"recommendations": [payload]}),
-        {
+        agent._GroundingStore({
             "ticketmaster:event-1": agent._GroundedEvent(
                 "ticketmaster",
                 "event-1",
                 "https://example.test/event-1",
                 None,
             )
-        },
+        }),
     )
 
     assert isinstance(recommendations[0], Recommendation)
@@ -493,11 +563,11 @@ def test_parse_recommendations_uses_grounded_source_over_model_value():
                 ]
             }
         ),
-        {
+        agent._GroundingStore({
             "ticketmaster:event-1": agent._GroundedEvent(
                 "ticketmaster", "event-1", None, None
             )
-        },
+        }),
     )
 
     assert recommendations[0].source == "ticketmaster"
@@ -516,11 +586,11 @@ def test_parse_recommendations_uses_source_admission(admission):
                 ]
             }
         ),
-        {
+        agent._GroundingStore({
             "event-1": agent._GroundedEvent(
                 "ticketmaster", "event-1", None, admission
             )
-        },
+        }),
     )
 
     assert recommendations[0].admission == admission
@@ -532,9 +602,9 @@ def test_parse_recommendations_rejects_more_than_seven():
     with pytest.raises(ValueError, match="more than 7"):
         agent._parse_recommendations(
             json.dumps({"recommendations": [recommendation] * 8}),
-            {
+            agent._GroundingStore({
                 "event-1": agent._GroundedEvent(
                     "ticketmaster", "event-1", None, None
                 )
-            },
+            }),
         )

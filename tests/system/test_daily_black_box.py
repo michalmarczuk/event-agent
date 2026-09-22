@@ -19,6 +19,10 @@ _MIXED_MOSIR_EVENT_ID = "mosir_tychy:9002"
 _MIXED_MOSIR_URL = (
     "https://mosir.tychy.pl/wydarzenia/9002-unique-mosir-event"
 )
+_PARTIAL_FAILURE_MOSIR_EVENT_ID = "mosir_tychy:9100"
+_PARTIAL_FAILURE_MOSIR_URL = (
+    "https://mosir.tychy.pl/wydarzenia/9100-available-mosir-event"
+)
 _TEST_SECRETS = (
     "system-test-openai-key",
     "system-test-ticketmaster-key",
@@ -120,11 +124,19 @@ def _assert_no_daily_success(stdout: str) -> None:
     ]
 
 
+def _structured_field(record: dict, field: str):
+    if field in record:
+        return record[field]
+    value: object = record
+    for part in field.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
 def _event_field(record: dict, field: str):
-    event = record.get("event")
-    if isinstance(event, dict):
-        return event.get(field)
-    return record.get(f"event.{field}")
+    return _structured_field(record, f"event.{field}")
 
 
 @qase.id(28)
@@ -251,11 +263,16 @@ def test_ticketmaster_failure_does_not_deliver_or_persist() -> None:
     )
 
     assert exit_code != 0
-    assert _requests(
+    ticketmaster_requests = _requests(
         journal,
         "GET",
         "/ticketmaster/discovery/v2/events.json",
     )
+    assert ticketmaster_requests
+    assert ticketmaster_requests[0]["response_status"] == 503
+    mosir_requests = _requests(journal, "GET", "/mosir/item/calendar")
+    assert mosir_requests
+    assert mosir_requests[0]["response_status"] == 503
     openai_requests = _openai_requests(journal)
     assert len(openai_requests) == 2
     tool_outputs = [
@@ -268,8 +285,89 @@ def test_ticketmaster_failure_does_not_deliver_or_persist() -> None:
     assert not _telegram_requests(journal)
     assert not (data_dir / "seen_events.json").exists()
     assert "Brak nowych wydarzeń." not in stdout + stderr
+    source_records = [
+        record
+        for record in _ecs_records(stdout)
+        if _event_field(record, "action") == "event_source_search"
+    ]
+    assert {
+        (
+            _structured_field(record, "event_source.name"),
+            _event_field(record, "outcome"),
+        )
+        for record in source_records
+    } == {("ticketmaster", "failure"), ("mosir_tychy", "failure")}
+    summary = next(
+        record
+        for record in _ecs_records(stdout)
+        if _event_field(record, "action") == "event_catalog_search"
+    )
+    assert _event_field(summary, "outcome") == "failure"
+    assert _structured_field(summary, "event_catalog.successful_source_count") == 0
+    assert _structured_field(summary, "event_catalog.failed_source_count") == 2
     _assert_no_secrets(stdout, stderr, journal)
     _assert_no_daily_success(stdout)
+
+
+@qase.id(38)
+def test_partial_source_failure_delivers_available_mosir_event() -> None:
+    exit_code, stdout, stderr, journal, data_dir = _run_artifacts(
+        "partial_source_failure"
+    )
+
+    assert exit_code == 0, stderr
+    ticketmaster_requests = _requests(
+        journal,
+        "GET",
+        "/ticketmaster/discovery/v2/events.json",
+    )
+    assert ticketmaster_requests
+    assert ticketmaster_requests[0]["response_status"] == 503
+    assert _requests(journal, "GET", "/mosir/item/calendar")
+    assert _requests(journal, "GET", "/mosir/wydarzenia")
+    assert _requests(journal, "GET", "/mosir/9100-available-mosir-event")
+
+    openai_requests = _openai_requests(journal)
+    assert len(openai_requests) == 2
+    assert _tool_output_event_ids(openai_requests[1]) == [
+        _PARTIAL_FAILURE_MOSIR_EVENT_ID
+    ]
+    telegram_requests = _telegram_requests(journal)
+    assert len(telegram_requests) == 1
+    message = telegram_requests[0]["body"]["text"]
+    assert "Available MOSiR Event" in message
+    assert _PARTIAL_FAILURE_MOSIR_URL in message
+    assert json.loads((data_dir / "seen_events.json").read_text()) == [
+        _PARTIAL_FAILURE_MOSIR_EVENT_ID
+    ]
+    assert "ticketmaster_price_scrape" not in [
+        _event_field(record, "action") for record in _ecs_records(stdout)
+    ]
+
+    source_records = [
+        record
+        for record in _ecs_records(stdout)
+        if _event_field(record, "action") == "event_source_search"
+    ]
+    assert {
+        (
+            _structured_field(record, "event_source.name"),
+            _event_field(record, "outcome"),
+        )
+        for record in source_records
+    } == {("ticketmaster", "failure"), ("mosir_tychy", "success")}
+    summary = next(
+        record
+        for record in _ecs_records(stdout)
+        if _event_field(record, "action") == "event_catalog_search"
+    )
+    assert _event_field(summary, "outcome") == "success"
+    assert _structured_field(summary, "event_catalog.successful_source_count") == 1
+    assert _structured_field(summary, "event_catalog.failed_source_count") == 1
+    assert _structured_field(summary, "event_catalog.final_event_count") == 1
+    assert _structured_field(summary, "event_catalog.degraded") is True
+    _assert_no_secrets(stdout, stderr, journal)
+    _assert_daily_success(stdout)
 
 
 @qase.id(36)

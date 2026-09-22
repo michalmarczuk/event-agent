@@ -126,11 +126,11 @@ def test_grounded_canonical_url_reaches_enrichment_and_telegram():
                 ]
             }
         ),
-        {
+        agent._GroundingStore({
             "ticketmaster:event": agent._GroundedEvent(
                 "ticketmaster", "event", canonical_url, None
             )
-        },
+        }),
     )[0]
     FakeScraper.prices = {
         ticketmaster_recommendation.url: Admission(False, 37.10, 63.60, "PLN")

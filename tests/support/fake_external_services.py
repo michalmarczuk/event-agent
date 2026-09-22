@@ -25,6 +25,7 @@ _SCENARIO_CANCELED_EVENT_FILTERING = "canceled_event_filtering"
 _SCENARIO_OPENAI_FAILURE = "openai_failure"
 _SCENARIO_MULTIPLE_EVENTS = "multiple_events"
 _SCENARIO_TICKETMASTER_FAILURE = "ticketmaster_failure"
+_SCENARIO_PARTIAL_SOURCE_FAILURE = "partial_source_failure"
 _SCENARIO_INVALID_RECOMMENDATION_ID = "invalid_recommendation_id"
 _SCENARIO_MIXED_SOURCE_DISCOVERY = "mixed_source_discovery"
 _REDACTED = "[REDACTED]"
@@ -68,6 +69,7 @@ class _Scenario:
     telegram_status: HTTPStatus = HTTPStatus.OK
     openai_status: HTTPStatus = HTTPStatus.OK
     ticketmaster_status: HTTPStatus = HTTPStatus.OK
+    mosir_status: HTTPStatus = HTTPStatus.OK
     invalid_recommendation_id: str | None = None
 
 
@@ -138,6 +140,15 @@ _MIXED_MOSIR_UNIQUE = {
     "detail_path": "/mosir/9002-unique-mosir-event",
     "url": "https://mosir.tychy.pl/wydarzenia/9002-unique-mosir-event",
 }
+_PARTIAL_FAILURE_MOSIR_EVENT = {
+    "id": "9100",
+    "name": "Available MOSiR Event",
+    "date": _EVENT_DATE,
+    "city": _EVENT_CITY,
+    "venue": "MOSiR Hall",
+    "detail_path": "/mosir/9100-available-mosir-event",
+    "url": "https://mosir.tychy.pl/wydarzenia/9100-available-mosir-event",
+}
 
 _SCENARIOS = {
     _SCENARIO_HAPPY_PATH: _Scenario((_HAPPY_EVENT,), _EVENT_ID),
@@ -164,6 +175,15 @@ _SCENARIOS = {
     _SCENARIO_TICKETMASTER_FAILURE: _Scenario(
         (),
         None,
+        ticketmaster_status=HTTPStatus.SERVICE_UNAVAILABLE,
+        mosir_status=HTTPStatus.SERVICE_UNAVAILABLE,
+    ),
+    _SCENARIO_PARTIAL_SOURCE_FAILURE: _Scenario(
+        (),
+        None,
+        mosir_events=(_PARTIAL_FAILURE_MOSIR_EVENT,),
+        mosir_recommendation_id="9100",
+        use_current_local_date=True,
         ticketmaster_status=HTTPStatus.SERVICE_UNAVAILABLE,
     ),
     _SCENARIO_INVALID_RECOMMENDATION_ID: _Scenario(
@@ -404,11 +424,19 @@ class _RequestJournal:
         self._entries: list[dict[str, Any]] = []
         self._lock = Lock()
 
-    def add(self, method: str, path: str, body: Any) -> None:
+    def add(self, method: str, path: str, body: Any) -> dict[str, Any]:
+        """Record a safe request and return its journal entry for completion."""
+        entry = {"method": method, "path": _safe_path(path), "body": body}
         with self._lock:
-            self._entries.append(
-                {"method": method, "path": _safe_path(path), "body": body}
-            )
+            self._entries.append(entry)
+        return entry
+
+    def set_response_status(
+        self, entry: dict[str, Any], status: HTTPStatus
+    ) -> None:
+        """Attach the response status without retaining response payloads."""
+        with self._lock:
+            entry["response_status"] = int(status)
 
     def snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -431,6 +459,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
     ) -> None:
         self._scenario = scenario
         self._journal = journal
+        self._journal_entry: dict[str, Any] | None = None
         super().__init__(*args, **kwargs)
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
@@ -450,13 +479,13 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
             return
 
         self._record_request(None)
+        if path.startswith("/mosir/") and scenario.mosir_status != HTTPStatus.OK:
+            self._send_json(
+                scenario.mosir_status,
+                {"error": "Deterministic MOSiR failure"},
+            )
+            return
         if path == "/mosir/item/calendar":
-            if scenario.ticketmaster_status != HTTPStatus.OK:
-                self._send_json(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    {"error": "Deterministic MOSiR failure"},
-                )
-                return
             query = dict(parse_qsl(urlsplit(self.path).query))
             try:
                 year = int(query.get("year", ""))
@@ -579,13 +608,20 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
     def _record_request(self, body: Any) -> None:
         if urlsplit(self.path).path not in _ADMIN_PATHS:
-            self._journal.add(self.command, self.path, body)
+            self._journal_entry = self._journal.add(
+                self.command, self.path, body
+            )
+
+    def _record_response_status(self, status: HTTPStatus) -> None:
+        if self._journal_entry is not None:
+            self._journal.set_response_status(self._journal_entry, status)
 
     def _send_not_found(self) -> None:
         self._send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
     def _send_json(self, status: HTTPStatus, payload: Any) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self._record_response_status(status)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -594,6 +630,7 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
 
     def _send_html(self, status: HTTPStatus, body: str) -> None:
         encoded_body = body.encode("utf-8")
+        self._record_response_status(status)
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded_body)))
