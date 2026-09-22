@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +14,7 @@ import re
 from threading import Lock, Thread
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 
 _SCENARIO_HAPPY_PATH = "happy_path"
@@ -24,6 +26,7 @@ _SCENARIO_OPENAI_FAILURE = "openai_failure"
 _SCENARIO_MULTIPLE_EVENTS = "multiple_events"
 _SCENARIO_TICKETMASTER_FAILURE = "ticketmaster_failure"
 _SCENARIO_INVALID_RECOMMENDATION_ID = "invalid_recommendation_id"
+_SCENARIO_MIXED_SOURCE_DISCOVERY = "mixed_source_discovery"
 _REDACTED = "[REDACTED]"
 _TELEGRAM_SEND_MESSAGE_PATTERN = re.compile(
     r"^/telegram/bot[^/]+/sendMessage$"
@@ -59,6 +62,9 @@ def _global_ticketmaster_event_id(source_event_id: str) -> str:
 class _Scenario:
     events: tuple[dict[str, Any], ...]
     recommendation_event_id: str | None
+    mosir_events: tuple[dict[str, Any], ...] = ()
+    mosir_recommendation_id: str | None = None
+    use_current_local_date: bool = False
     telegram_status: HTTPStatus = HTTPStatus.OK
     openai_status: HTTPStatus = HTTPStatus.OK
     ticketmaster_status: HTTPStatus = HTTPStatus.OK
@@ -110,6 +116,28 @@ _MULTIPLE_SELECTED_EVENT = _event_payload(
     event_id="event-multiple-selected-1",
     name="Selected Fake Concert",
 )
+_MIXED_TICKETMASTER_EVENT = _event_payload(
+    event_id="event-mixed-ticketmaster-1",
+    name="Shared Fake Concert",
+)
+_MIXED_MOSIR_DUPLICATE = {
+    "id": "9001",
+    "name": " shared   fake concert ",
+    "date": _EVENT_DATE,
+    "city": "tychy",
+    "venue": f" {_EVENT_VENUE} ",
+    "detail_path": "/mosir/9001-shared-fake-concert",
+    "url": "https://mosir.tychy.pl/wydarzenia/9001-shared-fake-concert",
+}
+_MIXED_MOSIR_UNIQUE = {
+    "id": "9002",
+    "name": "Unique MOSiR Event",
+    "date": _EVENT_DATE,
+    "city": _EVENT_CITY,
+    "venue": "MOSiR Hall",
+    "detail_path": "/mosir/9002-unique-mosir-event",
+    "url": "https://mosir.tychy.pl/wydarzenia/9002-unique-mosir-event",
+}
 
 _SCENARIOS = {
     _SCENARIO_HAPPY_PATH: _Scenario((_HAPPY_EVENT,), _EVENT_ID),
@@ -143,20 +171,80 @@ _SCENARIOS = {
         None,
         invalid_recommendation_id="ticketmaster:unknown-event-id",
     ),
+    _SCENARIO_MIXED_SOURCE_DISCOVERY: _Scenario(
+        (_MIXED_TICKETMASTER_EVENT,),
+        None,
+        mosir_events=(_MIXED_MOSIR_DUPLICATE, _MIXED_MOSIR_UNIQUE),
+        mosir_recommendation_id="9002",
+        use_current_local_date=True,
+    ),
 }
 _SUPPORTED_SCENARIOS = set(_SCENARIOS)
 
 
 def _ticketmaster_search_payload(scenario: _Scenario) -> dict[str, Any]:
+    events = deepcopy(scenario.events)
+    if scenario.use_current_local_date:
+        for event in events:
+            event["dates"]["start"]["localDate"] = _current_local_date()
     return {
-        "_embedded": {"events": list(scenario.events)},
+        "_embedded": {"events": events},
         "page": {
             "size": 10,
-            "totalElements": len(scenario.events),
+            "totalElements": len(events),
             "totalPages": 1,
             "number": 0,
         },
     }
+
+
+def _mosir_calendar_payload(
+    scenario: _Scenario,
+    year: int | None = None,
+    month: int | None = None,
+) -> list[dict[str, str]]:
+    if scenario.use_current_local_date:
+        current_date = datetime.now(ZoneInfo("Europe/Warsaw")).date()
+        if (year, month) != (current_date.year, current_date.month):
+            return []
+    return [
+        {"date": event["date"]}
+        for event in {
+            event["date"]: event
+            for event in _effective_mosir_events(scenario)
+        }.values()
+    ]
+
+
+def _current_local_date() -> str:
+    return datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat()
+
+
+def _effective_mosir_events(scenario: _Scenario) -> tuple[dict[str, Any], ...]:
+    if not scenario.use_current_local_date:
+        return scenario.mosir_events
+    current_date = _current_local_date()
+    return tuple({**event, "date": current_date} for event in scenario.mosir_events)
+
+
+def _mosir_events_page(events: list[dict[str, Any]]) -> str:
+    cards = "".join(
+        "<div class=\"item-box-wrapper\">"
+        f"<a title=\"{event['name']}\" href=\"{event['detail_path']}\">"
+        "Event"
+        "</a></div>"
+        for event in events
+    )
+    return f"<div class=\"events-list\">{cards}</div>"
+
+
+def _mosir_event_details(event: dict[str, Any]) -> str:
+    return (
+        "<html><head>"
+        f"<meta property=\"og:url\" content=\"{event['url']}\">"
+        "</head><body><h2>MIEJSCE WYDARZENIA</h2>"
+        f"<a>{event['venue']}</a></body></html>"
+    )
 
 
 def _openai_tool_response(request_body: dict[str, Any]) -> dict[str, Any]:
@@ -185,17 +273,37 @@ def _openai_final_response(
     request_body: dict[str, Any],
     scenario: _Scenario,
 ) -> dict[str, Any]:
+    if scenario.mosir_recommendation_id is not None:
+        recommendation_event = next(
+            event
+            for event in _effective_mosir_events(scenario)
+            if event["id"] == scenario.mosir_recommendation_id
+        )
+        recommendations = [
+            {
+                "event_id": f"mosir_tychy:{recommendation_event['id']}",
+                "name": recommendation_event["name"],
+                "category": "music",
+                "date": recommendation_event["date"],
+                "time": None,
+                "city": recommendation_event["city"],
+                "venue": recommendation_event["venue"],
+                "reason": "Deterministic fake recommendation.",
+            }
+        ]
+        return _openai_message_response(request_body, recommendations)
+
     if scenario.invalid_recommendation_id is not None:
         recommendation_event = _HAPPY_EVENT
         recommendation_event_id = scenario.invalid_recommendation_id
     else:
         recommendation_event = next(
-        (
-            event
-            for event in scenario.events
-            if event["id"] == scenario.recommendation_event_id
-        ),
-        None,
+            (
+                event
+                for event in scenario.events
+                if event["id"] == scenario.recommendation_event_id
+            ),
+            None,
         )
         recommendation_event_id = (
             recommendation_event["id"] if recommendation_event is not None else None
@@ -217,6 +325,13 @@ def _openai_final_response(
             "reason": "Deterministic fake recommendation.",
         }
         recommendations.append(recommendation)
+    return _openai_message_response(request_body, recommendations)
+
+
+def _openai_message_response(
+    request_body: dict[str, Any],
+    recommendations: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "id": "response-happy-final",
         "object": "response",
@@ -342,7 +457,40 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
                     {"error": "Deterministic MOSiR failure"},
                 )
                 return
-            self._send_json(HTTPStatus.OK, [])
+            query = dict(parse_qsl(urlsplit(self.path).query))
+            try:
+                year = int(query.get("year", ""))
+                month = int(query.get("month", ""))
+            except ValueError:
+                year = None
+                month = None
+            self._send_json(
+                HTTPStatus.OK,
+                _mosir_calendar_payload(scenario, year, month),
+            )
+            return
+        if path == "/mosir/wydarzenia":
+            requested_date = dict(parse_qsl(urlsplit(self.path).query)).get("date")
+            events = [
+                event
+                for event in _effective_mosir_events(scenario)
+                if event["date"] == requested_date
+            ]
+            self._send_html(HTTPStatus.OK, _mosir_events_page(events))
+            return
+        matching_mosir_event = next(
+            (
+                event
+                for event in _effective_mosir_events(scenario)
+                if event["detail_path"] == path
+            ),
+            None,
+        )
+        if matching_mosir_event is not None:
+            self._send_html(
+                HTTPStatus.OK,
+                _mosir_event_details(matching_mosir_event),
+            )
             return
         if path == "/ticketmaster/discovery/v2/events.json":
             if scenario.ticketmaster_status != HTTPStatus.OK:
@@ -443,6 +591,14 @@ class _FakeRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_html(self, status: HTTPStatus, body: str) -> None:
+        encoded_body = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded_body)))
+        self.end_headers()
+        self.wfile.write(encoded_body)
 
     def log_message(self, format: str, *args: Any) -> None:
         return

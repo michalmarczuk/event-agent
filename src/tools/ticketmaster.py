@@ -146,7 +146,7 @@ class TicketmasterClient:
             name=event["name"],
             date=event.get("dates", {}).get("start", {}).get("localDate"),
             city=venue.get("city", {}).get("name"),
-            venue=None,
+            venue=venue.get("name"),
             url=event.get("url"),
             source="ticketmaster",
             source_event_id=event["id"],

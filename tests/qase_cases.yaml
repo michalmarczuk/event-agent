@@ -543,6 +543,25 @@ suites:
           - action: Inspect logs and captured artifacts.
             expected: The unknown recommendation is not delivered and credentials are absent from observable output.
 
+      - title: Mixed-source discovery deduplicates and persists canonical event
+        qase_id: 37
+        description: >-
+          Ticketmaster and MOSiR candidates are normalized and conservatively
+          deduplicated before model selection, while the delivered MOSiR event
+          retains provider-authoritative identity and URL.
+        preconditions: >-
+          The production image runs against controlled Ticketmaster and MOSiR
+          fakes containing one cross-source duplicate and one unique MOSiR event.
+        priority: high
+        automated: true
+        steps:
+          - action: Run the production daily container against the mixed-source fake scenario.
+            expected: The model-visible search result contains the canonical Ticketmaster duplicate and the unique MOSiR event, but not the duplicate MOSiR event.
+          - action: Let the controlled OpenAI response select the unique MOSiR event.
+            expected: Telegram receives the MOSiR event with its canonical provider URL and no Ticketmaster price scrape is attempted.
+          - action: Inspect seen_events.json and structured ECS logs after delivery.
+            expected: History contains only the namespaced MOSiR ID, and the deduplication log identifies Ticketmaster as kept and MOSiR as dropped.
+
   - name: System Integration
     status: active
     cases:

@@ -13,6 +13,12 @@ _HAPPY_SOURCE_EVENT_ID = "event-happy-1"
 _HAPPY_EVENT_ID = "ticketmaster:event-happy-1"
 _VALID_EVENT_ID = "ticketmaster:event-valid-1"
 _MULTIPLE_SELECTED_EVENT_ID = "ticketmaster:event-multiple-selected-1"
+_MIXED_TICKETMASTER_EVENT_ID = "ticketmaster:event-mixed-ticketmaster-1"
+_MIXED_MOSIR_DUPLICATE_EVENT_ID = "mosir_tychy:9001"
+_MIXED_MOSIR_EVENT_ID = "mosir_tychy:9002"
+_MIXED_MOSIR_URL = (
+    "https://mosir.tychy.pl/wydarzenia/9002-unique-mosir-event"
+)
 _TEST_SECRETS = (
     "system-test-openai-key",
     "system-test-ticketmaster-key",
@@ -112,6 +118,13 @@ def _assert_no_daily_success(stdout: str) -> None:
         if record.get("event", {}).get("action") == "daily_run"
         and record.get("event", {}).get("outcome") == "success"
     ]
+
+
+def _event_field(record: dict, field: str):
+    event = record.get("event")
+    if isinstance(event, dict):
+        return event.get(field)
+    return record.get(f"event.{field}")
 
 
 @qase.id(28)
@@ -300,4 +313,62 @@ def test_multiple_events_persists_only_delivered_recommendation() -> None:
     assert json.loads((data_dir / "seen_events.json").read_text()) == [
         _MULTIPLE_SELECTED_EVENT_ID
     ]
+    _assert_daily_success(stdout)
+
+
+@qase.id(37)
+def test_mixed_source_discovery_deduplicates_and_persists_mosir_event() -> None:
+    exit_code, stdout, stderr, journal, data_dir = _run_artifacts(
+        "mixed_source_discovery"
+    )
+
+    assert exit_code == 0, stderr
+    assert _requests(
+        journal,
+        "GET",
+        "/ticketmaster/discovery/v2/events.json",
+    )
+    assert _requests(journal, "GET", "/mosir/item/calendar")
+    assert _requests(journal, "GET", "/mosir/wydarzenia")
+    assert _requests(journal, "GET", "/mosir/9001-shared-fake-concert")
+    assert _requests(journal, "GET", "/mosir/9002-unique-mosir-event")
+
+    openai_requests = _openai_requests(journal)
+    assert len(openai_requests) == 2
+    assert _tool_output_event_ids(openai_requests[1]) == [
+        _MIXED_TICKETMASTER_EVENT_ID,
+        _MIXED_MOSIR_EVENT_ID,
+    ]
+    assert _MIXED_MOSIR_DUPLICATE_EVENT_ID not in _tool_output_event_ids(
+        openai_requests[1]
+    )
+
+    telegram_requests = _telegram_requests(journal)
+    assert len(telegram_requests) == 1
+    message = telegram_requests[0]["body"]["text"]
+    assert "Unique MOSiR Event" in message
+    assert _MIXED_MOSIR_URL in message
+    assert "shared fake concert" not in message.casefold()
+
+    assert json.loads((data_dir / "seen_events.json").read_text()) == [
+        _MIXED_MOSIR_EVENT_ID
+    ]
+    assert _MIXED_TICKETMASTER_EVENT_ID not in json.loads(
+        (data_dir / "seen_events.json").read_text()
+    )
+    assert "ticketmaster_price_scrape" not in [
+        _event_field(record, "action")
+        for record in _ecs_records(stdout)
+    ]
+
+    deduplication_records = [
+        record
+        for record in _ecs_records(stdout)
+        if _event_field(record, "action") == "event_catalog_deduplicate"
+    ]
+    assert len(deduplication_records) == 1
+    deduplication_record = deduplication_records[0]
+    assert _event_field(deduplication_record, "kept_source") == "ticketmaster"
+    assert _event_field(deduplication_record, "dropped_source") == "mosir_tychy"
+    _assert_no_secrets(stdout, stderr, journal)
     _assert_daily_success(stdout)

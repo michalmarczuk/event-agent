@@ -27,27 +27,41 @@ def test_mixed_source_search_grounds_selected_provider_metadata():
         "Ticketmaster Concert",
         "2026-09-10",
         "Tychy",
-        None,
+        "Ticketmaster Arena",
         "https://www.ticketmaster.pl/event/abc123",
         "ticketmaster",
         "abc123",
         Admission(False, 40, 60, "PLN"),
     )
-    mosir_event = Event(
+    duplicate_mosir_event = Event(
         "mosir_tychy:1836",
+        "ticketmaster concert",
+        "2026-09-10",
+        "Tychy",
+        "Ticketmaster Arena",
+        "https://mosir.tychy.pl/1836-duplicate-concert",
+        "mosir_tychy",
+        "1836",
+        None,
+    )
+    unique_mosir_event = Event(
+        "mosir_tychy:1837",
         "MOSiR Concert",
         "2026-09-10",
         "Tychy",
         "Stadion Zimowy",
-        "https://mosir.tychy.pl/1836-mosir-concert",
+        "https://mosir.tychy.pl/1837-mosir-concert",
         "mosir_tychy",
-        "1836",
+        "1837",
         None,
     )
     catalog = EventCatalog(
         [
             _EventSource("ticketmaster", [ticketmaster_event]),
-            _EventSource("mosir_tychy", [mosir_event]),
+            _EventSource(
+                "mosir_tychy",
+                [duplicate_mosir_event, unique_mosir_event],
+            ),
         ]
     )
     tool_call = _tool_response(
@@ -67,7 +81,8 @@ def test_mixed_source_search_grounds_selected_provider_metadata():
         json.dumps(
             {
                 "recommendations": [
-                    _BASE_RECOMMENDATION | {"event_id": "mosir_tychy:1836"}
+                    _BASE_RECOMMENDATION | {"event_id": "ticketmaster:abc123"},
+                    _BASE_RECOMMENDATION | {"event_id": "mosir_tychy:1837"},
                 ]
             }
         ),
@@ -76,13 +91,19 @@ def test_mixed_source_search_grounds_selected_provider_metadata():
 
     assert [event["id"] for event in result] == [
         "ticketmaster:abc123",
-        "mosir_tychy:1836",
+        "mosir_tychy:1837",
     ]
     assert "admission" not in result[0]
-    assert recommendations[0].event_id == "mosir_tychy:1836"
-    assert recommendations[0].source == "mosir_tychy"
-    assert recommendations[0].url == "https://mosir.tychy.pl/1836-mosir-concert"
-    assert recommendations[0].admission is None
+    assert [recommendation.event_id for recommendation in recommendations] == [
+        "ticketmaster:abc123",
+        "mosir_tychy:1837",
+    ]
+    assert recommendations[0].source == "ticketmaster"
+    assert recommendations[0].url == "https://www.ticketmaster.pl/event/abc123"
+    assert recommendations[0].admission == Admission(False, 40, 60, "PLN")
+    assert recommendations[1].source == "mosir_tychy"
+    assert recommendations[1].url == "https://mosir.tychy.pl/1837-mosir-concert"
+    assert recommendations[1].admission is None
 
 
 def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(

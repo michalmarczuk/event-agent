@@ -1,7 +1,9 @@
 import json
+from datetime import datetime
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -118,6 +120,45 @@ def test_ticketmaster_search_returns_deterministic_event(fake_services):
         "totalElements": 1,
         "totalPages": 1,
     }
+
+
+def test_mixed_source_scenario_returns_mosir_selection_without_authority_fields():
+    current_date = datetime.now(ZoneInfo("Europe/Warsaw")).date()
+    with FakeExternalServicesServer(scenario="mixed_source_discovery") as server:
+        _, ticketmaster_payload = _request(
+            server,
+            "GET",
+            "/ticketmaster/discovery/v2/events.json?page=0",
+        )
+        _, calendar_payload = _request(
+            server,
+            "GET",
+            f"/mosir/item/calendar?year={current_date.year}&month={current_date.month}",
+        )
+        initial = _openai_request(
+            server,
+            {"model": "test-model", "input": "Find events"},
+        )
+        final = _openai_request(
+            server,
+            {
+                "model": "test-model",
+                "previous_response_id": initial["id"],
+                "input": [],
+            },
+        )
+
+    assert [event["id"] for event in ticketmaster_payload["_embedded"]["events"]] == [
+        "event-mixed-ticketmaster-1"
+    ]
+    assert calendar_payload == [
+        {"date": current_date.isoformat()}
+    ]
+    recommendation = json.loads(final["output"][0]["content"][0]["text"])[
+        "recommendations"
+    ][0]
+    assert recommendation["event_id"] == "mosir_tychy:9002"
+    assert not {"source", "url", "admission"} & recommendation.keys()
 
 
 @pytest.mark.parametrize(

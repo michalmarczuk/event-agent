@@ -231,7 +231,12 @@ def test_search_events_uses_api_key_and_parses_events():
                             "dates": {"start": {"localDate": "2026-09-10"}},
                             "url": "https://example.test/event-1",
                             "_embedded": {
-                                "venues": [{"city": {"name": "Katowice"}}],
+                                "venues": [
+                                    {
+                                        "name": "Arena",
+                                        "city": {"name": "Katowice"},
+                                    }
+                                ],
                             },
                         }
                     ]
@@ -263,7 +268,7 @@ def test_search_events_uses_api_key_and_parses_events():
             name="Concert",
             date="2026-09-10",
             city="Katowice",
-            venue=None,
+            venue="Arena",
             url="https://example.test/event-1",
             source="ticketmaster",
             source_event_id="event-1",
