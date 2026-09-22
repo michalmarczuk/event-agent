@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from src.sources.mosir_tychy import MosirTychySource
+from src.sources.mosir_tychy import MosirTychySource, _parse_event_details
 
 
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "mosir_tychy"
@@ -71,6 +71,16 @@ def test_tychy_search_normalizes_server_rendered_event(caplog):
     assert get.call_count == 3
     assert "skipped malformed calendar date" in caplog.text
     assert "skipped malformed event card" in caplog.text
+
+
+def test_detail_parser_handles_split_venue_label():
+    canonical_url, venue = _parse_event_details(
+        _fixture("event_1836_split_label.html"),
+        "https://mosir.example/requested",
+    )
+
+    assert canonical_url == "https://mosir.tychy.pl/1836-mosir-concert"
+    assert venue == "Stadion Zimowy"
 
 
 @pytest.mark.parametrize("city", ["Katowice", "Gliwice"])

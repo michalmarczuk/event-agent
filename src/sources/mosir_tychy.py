@@ -188,7 +188,11 @@ class _EventDetailsParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.canonical_url: str | None = None
-        self._collect_venue = False
+        self._heading_tag: str | None = None
+        self._heading_parts: list[str] = []
+        self._venue_pending = False
+        self._venue_anchor_depth = 0
+        self._venue_title: str | None = None
         self._venue_parts: list[str] = []
         self.venue: str | None = None
 
@@ -196,23 +200,44 @@ class _EventDetailsParser(HTMLParser):
         attributes = dict(attrs)
         if tag == "meta" and attributes.get("property") == "og:url":
             self.canonical_url = attributes.get("content")
+
         if tag in {"h2", "h3", "div", "span"}:
             classes = attributes.get("class") or ""
             if "event-venue" in classes:
-                self._collect_venue = True
-        if self._collect_venue and tag == "a":
+                self._venue_pending = True
+        if self._heading_tag is not None:
+            return
+        if tag in {"h2", "h3"}:
+            self._heading_tag = tag
+            self._heading_parts = []
+            return
+        if self._venue_pending and tag == "a":
+            self._venue_pending = False
+            self._venue_anchor_depth = 1
+            self._venue_title = attributes.get("title")
             self._venue_parts = []
 
     def handle_endtag(self, tag: str) -> None:
-        if self._collect_venue and tag == "a" and self._venue_parts:
-            self.venue = " ".join(self._venue_parts).strip() or None
-            self._collect_venue = False
+        if self._heading_tag == tag:
+            label = " ".join(self._heading_parts).split()
+            if " ".join(label).casefold() == "miejsce wydarzenia":
+                self._venue_pending = True
+            self._heading_tag = None
+            self._heading_parts = []
+            return
+        if self._venue_anchor_depth and tag == "a":
+            self._venue_anchor_depth -= 1
+            if self._venue_anchor_depth == 0:
+                venue = self._venue_title or " ".join(self._venue_parts)
+                self.venue = " ".join(venue.split()) or None
+                self._venue_title = None
+                self._venue_parts = []
 
     def handle_data(self, data: str) -> None:
         normalized = " ".join(data.split())
-        if normalized == "MIEJSCE WYDARZENIA":
-            self._collect_venue = True
-        elif self._collect_venue and normalized:
+        if self._heading_tag is not None and normalized:
+            self._heading_parts.append(normalized)
+        elif self._venue_anchor_depth and normalized:
             self._venue_parts.append(normalized)
 
 
