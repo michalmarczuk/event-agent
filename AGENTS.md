@@ -3,9 +3,9 @@
 ## Purpose
 
 This repository is a small Python 3.13 portfolio project for scheduled event
-discovery and delivery. The OpenAI agent selects grounded Ticketmaster events;
-deterministic code owns price enrichment, Telegram formatting, delivery, and
-history persistence.
+discovery and delivery. Ticketmaster and MOSiR Tychy feed one normalized
+catalog; the OpenAI agent selects grounded events, while deterministic code
+owns identity, price enrichment, Telegram formatting, delivery, and history.
 
 Read [Architecture](docs/architecture.md) for system behavior and
 [Engineering Rules](docs/engineering-rules.md) for the canonical invariants.

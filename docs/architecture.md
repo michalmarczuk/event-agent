@@ -2,15 +2,16 @@
 
 ## Goals
 
-Event Agent is a scheduled batch application that finds nearby Ticketmaster
-events, asks an OpenAI agent to choose a small set of grounded recommendations,
-enriches only those choices with deterministic ticket pricing, sends one
-Telegram report, and records the delivered recommendation IDs.
+Event Agent is a scheduled batch application that combines nearby Ticketmaster
+and MOSiR Tychy events through `EventSource` implementations and `EventCatalog`.
+The catalog normalizes and conservatively deduplicates candidates before an
+OpenAI agent chooses grounded recommendations. Deterministic enrichment, one
+Telegram report, and namespaced delivery history follow selection.
 
 The design makes the boundary between probabilistic selection and deterministic
-system behavior explicit. It is intentionally small: one discovery provider,
+system behavior explicit. It is intentionally small: two discovery sources,
 one browser backend, synchronous execution, and at most seven recommendations
-per run. Each Ticketmaster search supplies at most ten eligible unseen
+per run. The aggregated search result supplies at most ten eligible unseen
 candidates to the agent.
 
 ## Non-goals
@@ -32,13 +33,15 @@ filtering, price enrichment, delivery, and persistence.
 flowchart TB
     subgraph providers["External Providers"]
         tm_api["Ticketmaster<br/>API"]
+        mosir["MOSiR Tychy<br/>HTTP + HTML"]
         openai["OpenAI<br/>API"]
         tm_web["Ticketmaster<br/>web"]
         telegram_api["Telegram<br/>API"]
     end
 
     subgraph event_agent["Event Agent"]
-        discovery["Discovery +<br/>pages"]
+        sources["EventSource<br/>adapters"]
+        catalog["EventCatalog<br/>normalize + dedup"]
         filtering["Filter canceled<br/>+ seen"]
         selection["Grounded<br/>selection"]
         final["Recommendations"]
@@ -57,14 +60,15 @@ flowchart TB
         elastic["Elastic<br/>logs"]
     end
 
-    tm_api --> discovery --> filtering --> selection
+    tm_api --> sources
+    mosir --> sources --> catalog --> filtering --> selection
     openai <--> selection
     selection --> final --> enrichment --> delivery
     enrichment --> camoufox --> tm_web
     delivery --> telegram_api
     history --> filtering
     delivery -->|"successful<br/>delivery only"| history
-    discovery --> logs
+    catalog --> logs
     selection --> logs
     enrichment --> logs
     delivery --> logs --> otlp --> elastic
@@ -73,9 +77,9 @@ flowchart TB
     classDef ai fill:#25133f,stroke:#e879f9,color:#fdf4ff,stroke-width:2px;
     classDef deterministic fill:#12352b,stroke:#a3e635,color:#ecfccb,stroke-width:2px;
     classDef observability fill:#2b1d0e,stroke:#facc15,color:#fef9c3,stroke-width:2px;
-    class tm_api,openai,tm_web,telegram_api external;
+    class tm_api,mosir,openai,tm_web,telegram_api external;
     class selection ai;
-    class discovery,filtering,final,enrichment,camoufox,delivery,history deterministic;
+    class sources,catalog,filtering,final,enrichment,camoufox,delivery,history deterministic;
     class logs,otlp,elastic observability;
 ```
 
@@ -143,6 +147,10 @@ history changes only after a successful recommendation delivery.
 | `src/daily.py` | Compose one scheduled run and enforce delivery-before-persistence ordering. |
 | `src/agent.py` | Orchestrate OpenAI Responses calls, execute tools, filter candidates, ground IDs, and validate structured recommendations. |
 | `src/models.py` | Define shared event, admission, and recommendation dataclasses. |
+| `src/event_source.py` | Define the small discovery-source contract used by the catalog. |
+| `src/event_catalog.py` | Aggregate source results and apply conservative cross-source deduplication. |
+| `src/sources/ticketmaster.py` | Adapt Ticketmaster Discovery results to the shared Event model. |
+| `src/sources/mosir_tychy.py` | Discover Tychy events through the MOSiR calendar and server-rendered detail pages. |
 | `src/config.py` | Read and validate environment configuration. |
 | `src/history.py` | Load, validate, filter, and atomically persist seen event IDs. |
 | `src/logging_config.py` | Configure ECS JSON stdout logging and the optional direct OTLP log-export lifecycle. |
@@ -175,6 +183,8 @@ Structured records expose the boundaries of a run without full event payloads:
 - `ticketmaster_event_search` records API pages fetched, API events returned,
   and unseen eligible events returned to the agent; canceled events also emit
   `ticketmaster_event_filter` records with the dropped event ID.
+- `event_catalog_deduplicate` records the kept and dropped source/event IDs for
+  conservative cross-source duplicate removal.
 - `ticketmaster_price_scrape` records outcome, failure reason when applicable,
   elapsed time, page language, ticket marker, direct-price count, and whether a
   best-available control was found. Successful extraction also records the
@@ -191,18 +201,17 @@ auto-instrumentation, metrics, or traces.
 | Probabilistic LLM responsibility | Deterministic application responsibility |
 | --- | --- |
 | Choose and rank interesting grounded events. | Discover provider events through registered tools. |
-| Produce model-authored display fields—name, category, date, time, city, venue, reason, and URL—in a strict schema. | Filter seen and repeated IDs, validate grounding, and cap the result count. |
+| Produce model-authored editorial fields—name, category, date, time, city, venue, and reason—in a strict schema. | Filter seen and repeated IDs, validate grounding, and cap the result count. |
 | Decide whether another tool call is useful. | Own all `Admission` data and browser price extraction. |
 |  | Escape and format Telegram HTML. |
 |  | Deliver the report and persist selected IDs only after success. |
 
-The recommendation response schema deliberately excludes `admission`. Even if
-model output attempted to include it, strict schema validation rejects the
-field, and application parsing injects the provider-authoritative value.
-Successful search results have two representations: the internal Event's
-Admission is stored in `known_event_admissions`, while the fresh dictionary sent
-to OpenAI has its top-level `admission` field removed. Structured provider
-pricing therefore never reaches the model.
+The recommendation response schema deliberately excludes `source`, `url`, and
+`admission`. Even if model output attempted to include them, strict schema
+validation rejects the fields, and application parsing injects provider-
+authoritative values from the grounded Event. Search results have a private
+grounding record and a price-free dictionary sent to OpenAI; structured
+provider pricing therefore never reaches the model.
 
 Together, tool-output redaction and deterministic parser injection prevent the
 model from becoming Admission authority. Permanent agent instructions also
@@ -213,7 +222,7 @@ cross-checked against the provider response.
 ## OpenAI Responses API Tool Loop
 
 The agent creates an initial Responses API request with permanent instructions,
-the Ticketmaster tool definitions, and a strict JSON response schema. While the
+the aggregated `search_events` tool, and a strict JSON response schema. While the
 response contains function calls, it:
 
 1. Parses the tool arguments.
@@ -230,40 +239,42 @@ at each provider boundary. Ticketmaster HTTP failures are sanitized before they
 reach that model-visible payload. A failed tool call does not ground an event
 ID. Malformed tool arguments retain their existing fatal behavior.
 
-## Ticketmaster Discovery and Eligibility
+## Multi-source Discovery and Eligibility
 
-Each `search_events` request asks Ticketmaster for ten events per API page.
-The provider accumulates at most ten distinct eligible unseen events, advancing
-past pages dominated by previously seen IDs. It stops when it has ten results,
-Ticketmaster's pagination metadata reports no further page, or it reaches the
-five-page safety limit. If usable `totalPages` metadata is absent, a short page
-also ends pagination. The agent applies its own seen-ID and same-run filters
-before serializing at most ten events into each model-visible tool result.
+The model sees one `search_events` tool. `EventCatalog` calls the configured
+`EventSource` implementations, currently Ticketmaster and MOSiR Tychy, then
+returns their normalized `Event` values. Ticketmaster pagination advances past
+pages dominated by seen IDs and stops at ten eligible candidates, exhausted API
+pages, or the five-page safety limit. MOSiR uses its calendar endpoint,
+date-filtered server-rendered event pages, and detail pages over HTTP; it is
+gated to the configured city `Tychy`. MOSiR discovery uses no browser
+automation.
 
-An event with `dates.status.code == "canceled"` is discarded before grounding
-or model exposure; a canceled detail lookup is rejected too. Other statuses,
-including postponed and rescheduled, are not excluded solely for their status.
-Successful search output is price-free, while provider `Admission` remains in
-private agent state for deterministic use after selection. The seven-item cap
-applies to final recommendations, not to search candidates.
+Canceled Ticketmaster events are discarded before grounding or model exposure.
+The catalog performs conservative cross-source deduplication only when
+normalized name, date, city, and venue all match. Same-source IDs are never
+collapsed by this rule. When a Ticketmaster and MOSiR event match, Ticketmaster
+has priority; no fields are mixed between the provider records. The final
+recommendation cap remains seven items.
 
-## Grounding and `known_event_admissions`
+## Namespaced Identity and Grounding
 
-`known_event_admissions: dict[str, Admission | None]` is the agent run's single
-source of truth for both grounding and provider admission data:
+Every provider event keeps its raw `source_event_id` and receives a namespaced
+global ID such as `ticketmaster:abc123` or `mosir_tychy:1836`. Provider APIs use
+the raw ID; model-visible output, grounding, recommendations, and new history
+entries use the namespaced ID. Legacy raw Ticketmaster IDs are accepted only
+when reading existing history, never when writing new entries.
 
-- Search results are filtered against previously seen IDs and existing mapping
-  keys, preserving cross-run and same-run deduplication.
-- Each remaining unseen search result adds its event ID and provider
-  `Admission` value.
-- The model receives a price-free projection of that Event; the mapping remains
-  private to deterministic orchestration.
-- A successful `get_event_details` call adds the requested ID with
-  `setdefault(event_id, None)`, so it never erases an Admission already obtained
-  from search.
-- Final recommendation IDs must be keys in the mapping. Unknown IDs are rejected.
-- Recommendation parsing injects the mapped Admission, so the LLM can never
-  become the pricing authority.
+The agent keeps one private grounding record per global event ID containing the
+provider source, raw source ID, canonical URL, and provider Admission:
+
+- Successful source results populate the record and the model receives a
+  sanitized Event projection.
+- `get_event_details` routes a namespaced Ticketmaster ID to the raw provider
+  ID while preserving existing Admission and canonical URL authority.
+- Final recommendation IDs must be grounded; unknown IDs are rejected.
+- Recommendation parsing injects `source`, canonical `url`, and `admission`
+  from the private record, so the LLM cannot become authority for any of them.
 
 `AgentRunResult.recommended_event_ids` contains only the IDs in the final
 recommendations. Discovered but unselected IDs are not persisted.
@@ -272,8 +283,10 @@ recommendations. Discovered but unselected IDs are not persisted.
 
 `Admission` is provider-owned data. Ticketmaster API price ranges may establish
 an initial value during discovery. After the LLM selects recommendations,
-`src/ticketmaster_enrichment.py` processes only final recommendations whose URL
-belongs to `ticketmaster.pl` or one of its subdomains.
+`src/ticketmaster_enrichment.py` processes only final recommendations whose
+provider source is `ticketmaster` and whose canonical URL belongs to
+`ticketmaster.pl` or one of its subdomains. MOSiR recommendations are not sent
+through Camoufox or Ticketmaster price enrichment.
 
 - A successful scrape replaces the existing Admission with the visible provider
   price range.
@@ -372,16 +385,16 @@ HTTP, and Camoufox/Playwright objects. Meaningful coverage includes:
 - delivery-before-persistence ordering, atomic history writes, and structured
   daily-run summary logging.
 
-Nine System Tests run the production container against controlled fake external
+Ten System Tests run the production container against controlled fake external
 services. The four System Integration smoke checks are opt-in because they use
 real network services and third-party UI behavior; they are not part of
 deterministic GitHub CI.
 
 ## Intentional Tradeoffs
 
-- **Single provider and browser backend:** Ticketmaster and Camoufox keep the
-  code direct. Interfaces for hypothetical providers/backends are intentionally
-  absent.
+- **Small source set and single browser backend:** Ticketmaster and MOSiR use
+  direct source adapters, while Camoufox remains Ticketmaster-specific. The
+  source boundary is intentionally small rather than a generic plugin system.
 - **Synchronous batch execution:** simple sequencing is appropriate for at most
   seven recommendations.
 - **In-place enrichment:** the mutation is explicit and keeps pipeline wiring

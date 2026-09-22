@@ -17,10 +17,11 @@ refactors must preserve.
 - A failed or unavailable scrape preserves existing Admission data.
 - `Admission` remains provider-authoritative throughout discovery,
   recommendation parsing, enrichment, formatting, and delivery.
-- Post-selection price enrichment means browser enrichment. Ticketmaster API
-  Admission discovered earlier remains provider-owned, is retained in
-  `known_event_admissions`, and is injected deterministically after selection.
-- Enrichment mutates recommendation objects in place and returns the same list.
+- Post-selection price enrichment means browser enrichment. Provider Admission
+  discovered earlier remains provider-owned, is retained in the private
+  grounded-event record, and is injected deterministically after selection.
+- Enrichment mutates recommendation objects in place and returns no separate
+  result object.
 
 ## Browser Automation
 
@@ -47,8 +48,16 @@ refactors must preserve.
 - Tools, not model claims, ground event IDs. Only successful tool results may
   make an ID eligible for recommendation.
 - Preserve same-run deduplication and filtering of IDs persisted by prior runs.
-- Treat `known_event_admissions` as the per-run source of truth for grounded IDs
-  and their provider Admission values.
+- Treat the private grounded-event record as the per-run source of truth for
+  each namespaced ID, source, canonical URL, and provider Admission value.
+- Keep one model-visible `search_events` tool; `EventCatalog` aggregates the
+  Ticketmaster and MOSiR Tychy sources before the agent sees candidates.
+- Use `source_event_id` for provider calls and namespaced `Event.id` values for
+  grounding, recommendations, and newly persisted history. Legacy raw
+  Ticketmaster IDs are read-only history compatibility aliases.
+- Deduplicate across sources only when normalized name, date, city, and venue
+  all match. Ticketmaster has priority over MOSiR Tychy; do not fuzzy-match or
+  mix fields between provider records.
 - Reject final recommendations whose event ID is not grounded.
 - Do not expose Admission as an LLM-authored recommendation field.
 - Successful model-visible search results must omit Admission and all nested

@@ -29,16 +29,17 @@ See the [full architecture →](docs/architecture.md) for the technical and runt
 
 ### Daily execution
 
-A scheduled job filters canceled and previously delivered Ticketmaster events,
-asks OpenAI to choose grounded recommendations, then enriches only the final
-choices before sending Telegram. It records delivered IDs only after successful
-delivery; see [Architecture](docs/architecture.md) for the complete flow.
+A scheduled job combines Ticketmaster and MOSiR Tychy discovery, conservatively
+deduplicates the candidates, and asks OpenAI to choose grounded
+recommendations. Deterministic enrichment, Telegram delivery, and namespaced
+history tracking happen after selection; see [Architecture](docs/architecture.md)
+for the complete flow.
 
 ## Quality and testing
 
 - The ISTQB-aligned test strategy separates Component, Component Integration,
   System, and System Integration Testing. Component and Component Integration
-  Testing has 183 deterministic checks; nine black-box System Tests exercise
+  Testing has 232 deterministic checks; ten black-box System Tests exercise
   the exact production container; four live System Integration smoke checks run
   separately on Hugging Face.
 - Search paginates past previously seen events (up to five API pages), returns
@@ -51,8 +52,8 @@ delivery; see [Architecture](docs/architecture.md) for the complete flow.
   provider `Admission`; they do not fail the daily run.
 - History stores recommended IDs only after Telegram delivery succeeds.
 - Component and Component Integration tests use no real OpenAI, Ticketmaster,
-  Telegram, or browser calls. The Allure CI report combines their 183 results
-  with nine System Test results; Qase tracks the nine System and four live
+  Telegram, or browser calls. The Allure CI report combines their 232 results
+  with ten System Test results; Qase tracks the ten System and four live
   System Integration scenarios.
 
 ```mermaid
@@ -103,7 +104,8 @@ Collector are not configured.
 
 Structured records include a successful `daily_run` summary (duration and
 seen/recommended/saved counts), `ticketmaster_event_search` pagination counts,
-and `ticketmaster_price_scrape` outcomes, reasons, and extraction diagnostics.
+`event_catalog_deduplicate` kept/dropped source fields, and
+`ticketmaster_price_scrape` outcomes, reasons, and extraction diagnostics.
 These fields are suitable for an Elastic dashboard; this repository does not
 ship a dashboard definition.
 
@@ -131,6 +133,11 @@ credentials; the HF wrapper additionally needs `TAILSCALE_AUTHKEY` and
 for settings and the HF Jobs command.
 
 Only Camoufox traffic is routed through Tailscale and the Raspberry Pi exit node; the [full runtime diagram](docs/architecture.md#deployment-status) shows the boundary.
+
+The Ticketmaster price path has been validated in the Hugging Face runtime, and
+MOSiR discovery has been validated against its live HTTP/server-rendered pages.
+These checks are operational evidence; transient event examples are not part
+of the catalog or documentation contract.
 
 ## More detail
 
