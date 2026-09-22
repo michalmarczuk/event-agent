@@ -1,5 +1,5 @@
 from scripts import run_mosir_live_smoke as smoke
-from src.models import Event
+from src.events.models import Event
 
 
 class _Source:

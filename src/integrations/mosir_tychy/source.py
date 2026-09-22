@@ -12,13 +12,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-try:
-    from ..event_identity import build_event_id
-    from ..models import Event
-except ImportError:  # pragma: no cover - supports script execution
-    from event_identity import build_event_id
-    from models import Event
-
+from src.events.identity import build_event_id
+from src.events.models import Event
 
 logger = logging.getLogger(__name__)
 

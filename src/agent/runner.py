@@ -5,39 +5,21 @@ from typing import Any
 
 from openai import OpenAI
 
-try:
-    from .config import Settings, load_settings
-    from .event_catalog import EventCatalog
-    from .event_identity import parse_event_id
-    from .history import filter_unseen_events
-    from .models import Admission, Recommendation
-    from .sources.mosir_tychy import MosirTychySource
-    from .sources.ticketmaster import TicketmasterSource
-    from .tools.registry import (
-        GET_EVENT_DETAILS_TOOL,
-        SEARCH_EVENTS_TOOL,
-        create_tool_handlers,
-        execute_tool,
-        get_tool_definitions,
-    )
-    from .tools.ticketmaster import TicketmasterClient
-except ImportError:  # pragma: no cover - supports script execution
-    from config import Settings, load_settings
-    from event_catalog import EventCatalog
-    from event_identity import parse_event_id
-    from history import filter_unseen_events
-    from models import Admission, Recommendation
-    from sources.mosir_tychy import MosirTychySource
-    from sources.ticketmaster import TicketmasterSource
-    from tools.registry import (
-        GET_EVENT_DETAILS_TOOL,
-        SEARCH_EVENTS_TOOL,
-        create_tool_handlers,
-        execute_tool,
-        get_tool_definitions,
-    )
-    from tools.ticketmaster import TicketmasterClient
-
+from src.agent.tools.registry import (
+    GET_EVENT_DETAILS_TOOL,
+    SEARCH_EVENTS_TOOL,
+    create_tool_handlers,
+    execute_tool,
+    get_tool_definitions,
+)
+from src.config import Settings, load_settings
+from src.events.catalog import EventCatalog
+from src.events.identity import parse_event_id
+from src.events.models import Admission, Recommendation
+from src.integrations.mosir_tychy.source import MosirTychySource
+from src.integrations.ticketmaster.client import TicketmasterClient
+from src.integrations.ticketmaster.source import TicketmasterSource
+from src.persistence.history import filter_unseen_events
 
 AGENT_INSTRUCTIONS = """
 You are an event discovery agent.

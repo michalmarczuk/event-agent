@@ -3,14 +3,9 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-try:
-    from ..config import SearchLocation
-    from ..event_identity import build_event_id
-    from ..models import Admission, Event, EventDetails
-except ImportError:  # pragma: no cover - supports script execution
-    from config import SearchLocation
-    from event_identity import build_event_id
-    from models import Admission, Event, EventDetails
+from src.config import SearchLocation
+from src.events.identity import build_event_id
+from src.events.models import Admission, Event, EventDetails
 
 logger = logging.getLogger(__name__)
 

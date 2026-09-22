@@ -2,12 +2,8 @@ import logging
 from collections.abc import Callable
 from urllib.parse import urlparse
 
-try:
-    from .models import Recommendation
-    from .tools.ticketmaster_price_scraper import TicketmasterPriceScraper
-except ImportError:  # pragma: no cover - supports script execution
-    from models import Recommendation
-    from tools.ticketmaster_price_scraper import TicketmasterPriceScraper
+from src.events.models import Recommendation
+from src.integrations.ticketmaster.price_scraper import TicketmasterPriceScraper
 
 logger = logging.getLogger(__name__)
 

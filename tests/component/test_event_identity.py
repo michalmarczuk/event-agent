@@ -1,6 +1,6 @@
 import pytest
 
-from src.event_identity import build_event_id, parse_event_id
+from src.events.identity import build_event_id, parse_event_id
 
 
 def test_ticketmaster_event_identity_preserves_provider_id():

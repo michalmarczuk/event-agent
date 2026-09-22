@@ -7,10 +7,7 @@ from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 
-try:
-    from .config import load_elastic_logging_settings
-except ImportError:  # pragma: no cover - supports direct script execution
-    from config import load_elastic_logging_settings
+from src.config import load_elastic_logging_settings
 
 _ECS_HANDLER_MARKER = "_event_agent_ecs_handler"
 _OTLP_HANDLER_MARKER = "_event_agent_otlp_handler"

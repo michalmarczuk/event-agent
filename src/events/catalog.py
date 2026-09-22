@@ -4,13 +4,8 @@ import logging
 from collections.abc import Sequence
 from time import monotonic_ns
 
-try:
-    from .event_source import EventSource
-    from .models import Event
-except ImportError:  # pragma: no cover - supports script execution
-    from event_source import EventSource
-    from models import Event
-
+from src.events.models import Event
+from src.events.source import EventSource
 
 logger = logging.getLogger(__name__)
 

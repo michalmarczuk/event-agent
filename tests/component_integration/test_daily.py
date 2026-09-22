@@ -1,12 +1,36 @@
 import logging
-import runpy
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import src.app.daily as daily
 from src.config import SearchLocation, Settings
+
+
+def _patch_daily_dependencies(
+    monkeypatch,
+    *,
+    agent,
+    history,
+    telegram,
+    config,
+    formatter,
+    enrichment,
+    logging_config,
+):
+    monkeypatch.setattr(daily, "run_agent", agent.run_agent)
+    monkeypatch.setattr(daily, "load_seen_event_ids", history.load_seen_event_ids)
+    monkeypatch.setattr(daily, "save_seen_event_ids", history.save_seen_event_ids)
+    monkeypatch.setattr(daily, "send_telegram_message", telegram.send_telegram_message)
+    monkeypatch.setattr(daily, "load_settings", config.load_settings)
+    monkeypatch.setattr(daily, "format_telegram_message", formatter.format_telegram_message)
+    monkeypatch.setattr(
+        daily,
+        "enrich_ticketmaster_prices",
+        enrichment.enrich_ticketmaster_prices,
+    )
+    monkeypatch.setattr(daily, "configure_logging", logging_config.configure_logging)
+    monkeypatch.setattr(daily, "shutdown_logging", logging_config.shutdown_logging)
 
 
 def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
@@ -88,17 +112,19 @@ def test_daily_runs_pipeline_and_saves_history_only_after_telegram_succeeds(
         shutdown_logging=lambda: operations.append(("logging_shutdown",)),
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO):
-        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+        daily.main()
 
     assert operations == [
         ("logging",),
@@ -170,16 +196,18 @@ def test_daily_no_recommendations_sends_info_message_and_preserves_history(
         shutdown_logging=lambda: None,
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
-    runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+    daily.main()
 
     assert operations == [
         ("formatter", []),
@@ -229,19 +257,21 @@ def test_daily_aborts_without_delivery_or_persistence_when_discovery_failed(
         shutdown_logging=lambda: operations.append(("logging_shutdown",)),
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
         RuntimeError, match="Event discovery failed"
     ):
-        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+        daily.main()
 
     assert operations == [
         ("agent", seen_ids),
@@ -294,19 +324,21 @@ def test_daily_does_not_save_history_when_telegram_fails(monkeypatch, caplog):
         shutdown_logging=lambda: logging_shutdowns.append(True),
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
         RuntimeError, match="Telegram unavailable"
     ):
-        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+        daily.main()
 
     assert saved_ids == []
     assert logging_shutdowns == [True]
@@ -353,19 +385,21 @@ def test_daily_does_not_report_success_when_history_save_fails(monkeypatch, capl
         shutdown_logging=lambda: operations.append(("logging_shutdown",)),
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
     with caplog.at_level(logging.INFO), pytest.raises(
         RuntimeError, match="History unavailable"
     ):
-        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+        daily.main()
 
     assert operations == [
         ("telegram", "formatted report"),
@@ -418,25 +452,24 @@ def test_daily_summary_logging_failure_does_not_fail_delivery(monkeypatch):
         shutdown_logging=lambda: operations.append(("logging_shutdown",)),
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    original_get_logger = logging.getLogger
     with monkeypatch.context() as logger_patch:
         logger_patch.setattr(
-            logging,
-            "getLogger",
-            lambda name=None: SimpleNamespace(info=log_info)
-            if name == "__main__"
-            else original_get_logger(name),
+            daily,
+            "logger",
+            SimpleNamespace(info=log_info),
         )
-        project_root = Path(__file__).resolve().parents[2]
-        runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+        daily.main()
 
     assert operations == [
         ("telegram", "formatted report"),
@@ -482,15 +515,17 @@ def test_daily_persists_only_recommended_event_ids(monkeypatch):
         shutdown_logging=lambda: None,
     )
 
-    monkeypatch.setitem(sys.modules, "agent", fake_agent)
-    monkeypatch.setitem(sys.modules, "history", fake_history)
-    monkeypatch.setitem(sys.modules, "telegram_notifier", fake_telegram)
-    monkeypatch.setitem(sys.modules, "config", fake_config)
-    monkeypatch.setitem(sys.modules, "telegram_formatter", fake_formatter)
-    monkeypatch.setitem(sys.modules, "ticketmaster_enrichment", fake_enrichment)
-    monkeypatch.setitem(sys.modules, "logging_config", fake_logging_config)
+    _patch_daily_dependencies(
+        monkeypatch,
+        agent=fake_agent,
+        history=fake_history,
+        telegram=fake_telegram,
+        config=fake_config,
+        formatter=fake_formatter,
+        enrichment=fake_enrichment,
+        logging_config=fake_logging_config,
+    )
 
-    project_root = Path(__file__).resolve().parents[2]
-    runpy.run_path(project_root / "src" / "daily.py", run_name="__main__")
+    daily.main()
 
     assert saved_ids == [{"ticketmaster:event-1", "ticketmaster:event-2"}]

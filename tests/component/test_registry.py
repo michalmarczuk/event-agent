@@ -2,12 +2,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.event_catalog import EventCatalog
-from src.tools.registry import (
+from src.agent.tools.registry import (
     create_tool_handlers,
     execute_tool,
     get_tool_definitions,
 )
+from src.events.catalog import EventCatalog
 
 
 def test_every_tool_definition_has_a_matching_handler():

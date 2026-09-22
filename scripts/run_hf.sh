@@ -70,6 +70,6 @@ echo "Starting event agent..."
 # HF production uses the same application entrypoint as the image CMD; the
 # wrapper only adds Tailscale/SOCKS setup and a virtual display for Camoufox.
 xvfb-run -a -e /dev/stderr \
-    python -u src/daily.py
+    python -u -m src.app.daily
 
 echo "Event agent finished"

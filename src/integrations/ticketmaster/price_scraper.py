@@ -7,12 +7,8 @@ from camoufox.sync_api import NewBrowser
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-try:
-    from ..config import load_scraper_proxy_url
-    from ..models import Admission
-except ImportError:  # pragma: no cover - supports script execution
-    from config import load_scraper_proxy_url
-    from models import Admission
+from src.config import load_scraper_proxy_url
+from src.events.models import Admission
 
 logger = logging.getLogger(__name__)
 

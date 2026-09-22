@@ -1,13 +1,8 @@
 from collections.abc import Callable
 from functools import partial
 
-try:
-    from ..event_catalog import EventCatalog
-    from .ticketmaster import TicketmasterClient
-except ImportError:  # pragma: no cover - supports script execution
-    from event_catalog import EventCatalog
-    from tools.ticketmaster import TicketmasterClient
-
+from src.events.catalog import EventCatalog
+from src.integrations.ticketmaster.client import TicketmasterClient
 
 SEARCH_EVENTS_TOOL = "search_events"
 GET_EVENT_DETAILS_TOOL = "get_event_details"

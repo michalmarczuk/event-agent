@@ -6,8 +6,8 @@ import sys
 from collections.abc import Sequence
 from urllib.parse import urlparse
 
-from src.models import Event
-from src.sources.mosir_tychy import MosirTychySource
+from src.events.models import Event
+from src.integrations.mosir_tychy.source import MosirTychySource
 
 _SOURCE = "mosir_tychy"
 _CITY = "Tychy"

@@ -1,18 +1,13 @@
 import logging
 import time
 
-from agent import run_agent
-from config import load_settings
-from history import load_seen_event_ids, save_seen_event_ids
-from telegram_formatter import format_telegram_message
-from telegram_notifier import send_telegram_message
-
-try:
-    from logging_config import configure_logging, shutdown_logging
-    from ticketmaster_enrichment import enrich_ticketmaster_prices
-except ImportError:  # pragma: no cover - supports runpy-based entry-point tests
-    from src.logging_config import configure_logging, shutdown_logging
-    from src.ticketmaster_enrichment import enrich_ticketmaster_prices
+from src.agent.runner import run_agent
+from src.config import load_settings
+from src.integrations.telegram.formatter import format_telegram_message
+from src.integrations.telegram.notifier import send_telegram_message
+from src.integrations.ticketmaster.enrichment import enrich_ticketmaster_prices
+from src.observability.logging import configure_logging, shutdown_logging
+from src.persistence.history import load_seen_event_ids, save_seen_event_ids
 
 logger = logging.getLogger(__name__)
 

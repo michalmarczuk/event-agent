@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-import src.agent as agent
+import src.agent.runner as agent
 from src.config import SearchLocation, Settings
-from src.models import Admission, Event, EventDetails, Recommendation
+from src.events.models import Admission, Event, EventDetails, Recommendation
 from tests.support.agent_support import (
     _BASE_RECOMMENDATION,
     TEST_SETTINGS,

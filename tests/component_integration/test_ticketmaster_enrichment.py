@@ -1,9 +1,9 @@
 import json
 
-import src.agent as agent
-from src.models import Admission
-from src.telegram_formatter import format_telegram_message
-from src.ticketmaster_enrichment import enrich_ticketmaster_prices
+import src.agent.runner as agent
+from src.events.models import Admission
+from src.integrations.telegram.formatter import format_telegram_message
+from src.integrations.ticketmaster.enrichment import enrich_ticketmaster_prices
 from tests.support.agent_support import _BASE_RECOMMENDATION
 from tests.support.ticketmaster_enrichment_helpers import FakeScraper, recommendation
 

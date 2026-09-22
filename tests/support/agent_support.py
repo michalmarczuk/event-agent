@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import src.agent as agent
+import src.agent.runner as agent
 from src.config import SearchLocation, Settings
 
 TEST_SETTINGS = Settings(

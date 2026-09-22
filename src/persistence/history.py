@@ -3,13 +3,9 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-try:
-    from .models import Event
-except ImportError:  # pragma: no cover - supports script execution
-    from models import Event
+from src.events.models import Event
 
-
-SEEN_EVENTS_FILE = Path(__file__).resolve().parent.parent / "data" / "seen_events.json"
+SEEN_EVENTS_FILE = Path(__file__).resolve().parents[2] / "data" / "seen_events.json"
 
 
 def load_seen_event_ids() -> set[str]:

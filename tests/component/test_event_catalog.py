@@ -2,9 +2,9 @@ import logging
 
 import pytest
 
-from src.event_catalog import EventCatalog
-from src.models import Event
-from src.sources.ticketmaster import TicketmasterSource
+from src.events.catalog import EventCatalog
+from src.events.models import Event
+from src.integrations.ticketmaster.source import TicketmasterSource
 
 
 def _event(

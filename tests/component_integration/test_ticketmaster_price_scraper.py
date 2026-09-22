@@ -2,9 +2,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.models import Admission
-from src.tools import ticketmaster_price_scraper as scraper_module
-from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
+from src.events.models import Admission
+from src.integrations.ticketmaster import price_scraper as scraper_module
+from src.integrations.ticketmaster.price_scraper import TicketmasterPriceScraper
 from tests.support.ticketmaster_price_scraper_support import _EVENT_URL, scraper_for
 
 

@@ -1,5 +1,5 @@
-from src.models import Admission, Recommendation
-from src.telegram_formatter import format_telegram_message
+from src.events.models import Admission, Recommendation
+from src.integrations.telegram.formatter import format_telegram_message
 
 
 def recommendation(category="music", **overrides):

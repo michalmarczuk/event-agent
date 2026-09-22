@@ -1,10 +1,6 @@
 from html import escape
 
-try:
-    from .models import Admission, Recommendation
-except ImportError:  # pragma: no cover - supports script execution
-    from models import Admission, Recommendation
-
+from src.events.models import Admission, Recommendation
 
 _CATEGORY_EMOJIS = {
     "music": "🎵",

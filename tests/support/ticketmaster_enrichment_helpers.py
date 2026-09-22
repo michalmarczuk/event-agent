@@ -1,4 +1,4 @@
-from src.models import Recommendation
+from src.events.models import Recommendation
 
 
 def recommendation(event_id, url, admission=None, *, source="ticketmaster"):

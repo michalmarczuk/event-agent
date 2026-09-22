@@ -4,11 +4,11 @@ from unittest.mock import patch
 import pytest
 import requests
 
-import src.agent as agent
+import src.agent.runner as agent
 from src.config import SearchLocation
-from src.event_catalog import EventCatalog
-from src.models import Admission, Event
-from src.tools.ticketmaster import TicketmasterClient
+from src.events.catalog import EventCatalog
+from src.events.models import Admission, Event
+from src.integrations.ticketmaster.client import TicketmasterClient
 from tests.support.agent_support import _BASE_RECOMMENDATION, _tool_response
 
 
@@ -131,7 +131,7 @@ def test_ticketmaster_http_failure_does_not_expose_api_key_to_model_or_logs(
     }
 
     caplog.set_level("INFO")
-    with patch("src.tools.ticketmaster.requests.get", return_value=response):
+    with patch("src.integrations.ticketmaster.client.requests.get", return_value=response):
         execution = agent._execute_tool_call(
             tool_handlers,
             tool_call,
@@ -176,7 +176,7 @@ def test_canceled_search_event_is_not_model_visible_or_grounded():
     }
     grounding = agent._GroundingStore()
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data):
         execution = agent._execute_tool_call(
             {"search_events": ticketmaster_client.search_events},
             tool_call,
@@ -232,7 +232,7 @@ def test_model_visible_search_is_capped_after_skipping_seen_first_page():
     grounding = agent._GroundingStore()
 
     with patch(
-        "src.tools.ticketmaster._get_ticketmaster_data", side_effect=data
+        "src.integrations.ticketmaster.client._get_ticketmaster_data", side_effect=data
     ) as get:
         execution = agent._execute_tool_call(
             {"search_events": client.search_events},
@@ -270,7 +270,7 @@ def test_canceled_event_details_do_not_ground_event_id():
     }
     grounding = agent._GroundingStore()
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data):
         execution = agent._execute_tool_call(
             {"get_event_details": ticketmaster_client.get_event_details},
             tool_call,

@@ -2,10 +2,7 @@
 
 from typing import Protocol
 
-try:
-    from .models import Event
-except ImportError:  # pragma: no cover - supports script execution
-    from models import Event
+from src.events.models import Event
 
 
 class EventSource(Protocol):

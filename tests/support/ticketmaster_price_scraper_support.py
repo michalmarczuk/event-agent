@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from src.tools.ticketmaster_price_scraper import TicketmasterPriceScraper
+from src.integrations.ticketmaster.price_scraper import TicketmasterPriceScraper
 
 _EVENT_URL = "https://example.test/event"
 

@@ -62,4 +62,4 @@ RUN chmod 0755 \
     scripts/run_hf_qase_mosir_live_smoke.sh
 
 ENTRYPOINT ["tini", "-g", "--"]
-CMD ["xvfb-run", "-a", "python", "src/daily.py"]
+CMD ["xvfb-run", "-a", "python", "-m", "src.app.daily"]

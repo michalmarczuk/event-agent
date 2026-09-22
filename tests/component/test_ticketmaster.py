@@ -5,8 +5,8 @@ import pytest
 import requests
 
 from src.config import SearchLocation
-from src.models import Admission, Event, EventDetails
-from src.tools.ticketmaster import TicketmasterClient
+from src.events.models import Admission, Event, EventDetails
+from src.integrations.ticketmaster.client import TicketmasterClient
 
 
 def _discovery_event(event_id, status="onsale"):
@@ -38,8 +38,8 @@ def test_search_events_drops_canceled_event_with_structured_log(caplog):
     }
 
     with (
-        patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data),
-        caplog.at_level("INFO", logger="src.tools.ticketmaster"),
+        patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data),
+        caplog.at_level("INFO", logger="src.integrations.ticketmaster.client"),
     ):
         events = TicketmasterClient(
             "ticketmaster-test-key",
@@ -81,7 +81,7 @@ def test_search_events_keeps_non_canceled_statuses(status):
         }
     }
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data):
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data):
         events = TicketmasterClient(
             "ticketmaster-test-key",
             SearchLocation("Tychy", "u2y0test", 50),
@@ -101,8 +101,8 @@ def test_search_events_fetches_later_page_after_first_page_is_seen(caplog):
     )
 
     with (
-        patch("src.tools.ticketmaster._get_ticketmaster_data", side_effect=responses) as get,
-        caplog.at_level("INFO", logger="src.tools.ticketmaster"),
+        patch("src.integrations.ticketmaster.client._get_ticketmaster_data", side_effect=responses) as get,
+        caplog.at_level("INFO", logger="src.integrations.ticketmaster.client"),
     ):
         events = client.search_events(
             30, seen_event_ids={f"seen-{index}" for index in range(10)}
@@ -130,7 +130,7 @@ def test_search_events_stops_after_ten_unseen_on_first_page():
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data) as get:
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data) as get:
         events = client.search_events(30, seen_event_ids=set())
 
     assert len(events) == 10
@@ -149,7 +149,7 @@ def test_search_events_does_not_count_canceled_toward_ten_event_target():
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", side_effect=responses) as get:
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", side_effect=responses) as get:
         events = client.search_events(30, seen_event_ids=set())
 
     assert [event.id for event in events] == [
@@ -165,7 +165,7 @@ def test_search_events_stops_when_ticketmaster_pages_are_exhausted(seen_event_id
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", return_value=data) as get:
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", return_value=data) as get:
         events = client.search_events(30, seen_event_ids={seen_event_id})
 
     assert events == []
@@ -181,7 +181,7 @@ def test_search_events_stops_at_five_page_safety_limit():
         "ticketmaster-test-key", SearchLocation("Tychy", "u2y0test", 50)
     )
 
-    with patch("src.tools.ticketmaster._get_ticketmaster_data", side_effect=responses) as get:
+    with patch("src.integrations.ticketmaster.client._get_ticketmaster_data", side_effect=responses) as get:
         events = client.search_events(30, seen_event_ids=set())
 
     assert [event.id for event in events] == [
@@ -200,7 +200,7 @@ def test_search_events_sanitizes_http_failure_and_exception_chain():
     )
 
     with (
-        patch("src.tools.ticketmaster.requests.get", return_value=response),
+        patch("src.integrations.ticketmaster.client.requests.get", return_value=response),
         pytest.raises(
             RuntimeError,
             match=r"Ticketmaster request failed \(HTTP 503\)",
@@ -246,7 +246,7 @@ def test_search_events_uses_api_key_and_parses_events():
         },
     )()
 
-    with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
+    with patch("src.integrations.ticketmaster.client.requests.get", return_value=response) as get:
         events = TicketmasterClient(
             "ticketmaster-test-key",
             SearchLocation("Tychy", "u2y0test", 50),
@@ -340,7 +340,7 @@ def test_get_event_details_uses_api_key_and_parses_event():
         },
     )()
 
-    with patch("src.tools.ticketmaster.requests.get", return_value=response) as get:
+    with patch("src.integrations.ticketmaster.client.requests.get", return_value=response) as get:
         details = TicketmasterClient(
             "ticketmaster-test-key",
             SearchLocation("Tychy", "u2y0test", 50),
@@ -373,7 +373,7 @@ def test_ticketmaster_client_builds_urls_from_configured_api_base_url():
     )
 
     with patch(
-        "src.tools.ticketmaster._get_ticketmaster_data",
+        "src.integrations.ticketmaster.client._get_ticketmaster_data",
         side_effect=responses,
     ) as get_data:
         client.search_events(30)

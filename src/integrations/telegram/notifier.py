@@ -2,10 +2,7 @@ import logging
 
 import requests
 
-try:
-    from .config import load_settings
-except ImportError:  # pragma: no cover - supports script execution
-    from config import load_settings
+from src.config import load_settings
 
 logger = logging.getLogger(__name__)
 

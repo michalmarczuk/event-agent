@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import src.history as history
-from src.models import Event
+import src.persistence.history as history
+from src.events.models import Event
 
 
 def test_load_seen_event_ids_returns_saved_ids(tmp_path, monkeypatch):

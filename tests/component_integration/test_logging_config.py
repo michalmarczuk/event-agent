@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
-import src.logging_config as logging_config
+import src.observability.logging as logging_config
 from src.config import ElasticLoggingSettings
 
 

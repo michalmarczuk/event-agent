@@ -1,11 +1,7 @@
 """Adapter exposing Ticketmaster through the common discovery contract."""
 
-try:
-    from ..models import Event
-    from ..tools.ticketmaster import TicketmasterClient
-except ImportError:  # pragma: no cover - supports script execution
-    from models import Event
-    from tools.ticketmaster import TicketmasterClient
+from src.events.models import Event
+from src.integrations.ticketmaster.client import TicketmasterClient
 
 
 class TicketmasterSource:

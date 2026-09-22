@@ -6,7 +6,7 @@ import pytest
 import requests
 
 from src.config import SearchLocation, Settings
-from src.telegram_notifier import send_telegram_message
+from src.integrations.telegram.notifier import send_telegram_message
 
 TEST_SETTINGS = Settings(
     openai_api_key="openai-test-key",
@@ -25,8 +25,8 @@ def test_send_telegram_message_sanitizes_delivery_failure(caplog):
     )
 
     with (
-        patch("src.telegram_notifier.load_settings", return_value=TEST_SETTINGS),
-        patch("src.telegram_notifier.requests.post", side_effect=leaking_error),
+        patch("src.integrations.telegram.notifier.load_settings", return_value=TEST_SETTINGS),
+        patch("src.integrations.telegram.notifier.requests.post", side_effect=leaking_error),
         caplog.at_level(logging.ERROR),
         pytest.raises(RuntimeError, match="^Telegram delivery failed$") as error_info,
     ):
@@ -45,8 +45,8 @@ def test_send_telegram_message_uses_html_parse_mode():
     response = MagicMock()
 
     with (
-        patch("src.telegram_notifier.load_settings", return_value=TEST_SETTINGS),
-        patch("src.telegram_notifier.requests.post", return_value=response) as post,
+        patch("src.integrations.telegram.notifier.load_settings", return_value=TEST_SETTINGS),
+        patch("src.integrations.telegram.notifier.requests.post", return_value=response) as post,
     ):
         send_telegram_message("<b>Report</b>")
 
@@ -72,8 +72,8 @@ def test_send_telegram_message_builds_url_from_configured_api_base_url():
     )
 
     with (
-        patch("src.telegram_notifier.load_settings", return_value=settings),
-        patch("src.telegram_notifier.requests.post", return_value=response) as post,
+        patch("src.integrations.telegram.notifier.load_settings", return_value=settings),
+        patch("src.integrations.telegram.notifier.requests.post", return_value=response) as post,
     ):
         send_telegram_message("Report")
 

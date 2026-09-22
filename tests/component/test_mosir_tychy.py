@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from src.sources.mosir_tychy import MosirTychySource, _parse_event_details
+from src.integrations.mosir_tychy.source import MosirTychySource, _parse_event_details
 
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "mosir_tychy"
 
@@ -53,7 +53,7 @@ def _happy_get(url, *, params=None, timeout):
 
 
 def test_tychy_search_normalizes_server_rendered_event(caplog):
-    with patch("src.sources.mosir_tychy.requests.get", side_effect=_happy_get) as get:
+    with patch("src.integrations.mosir_tychy.source.requests.get", side_effect=_happy_get) as get:
         events = _source().search_events("Tychy", 0)
 
     assert len(events) == 1
@@ -84,7 +84,7 @@ def test_detail_parser_handles_split_venue_label():
 
 @pytest.mark.parametrize("city", ["Katowice", "Gliwice"])
 def test_non_tychy_search_returns_empty_without_http(city):
-    with patch("src.sources.mosir_tychy.requests.get") as get:
+    with patch("src.integrations.mosir_tychy.source.requests.get") as get:
         events = _source().search_events(city, 30)
 
     assert events == []
@@ -92,7 +92,7 @@ def test_non_tychy_search_returns_empty_without_http(city):
 
 
 def test_date_window_filters_marked_dates_before_fetching_event_pages():
-    with patch("src.sources.mosir_tychy.requests.get", side_effect=_happy_get) as get:
+    with patch("src.integrations.mosir_tychy.source.requests.get", side_effect=_happy_get) as get:
         _source().search_events("Tychy", 0)
 
     assert [call.args[0] for call in get.call_args_list] == [
@@ -109,7 +109,7 @@ def test_valid_empty_events_page_is_successful_empty_result():
         assert url.endswith("/wydarzenia")
         return _Response(text=_fixture("empty_events.html"))
 
-    with patch("src.sources.mosir_tychy.requests.get", side_effect=get):
+    with patch("src.integrations.mosir_tychy.source.requests.get", side_effect=get):
         assert _source().search_events("Tychy", 0) == []
 
 
@@ -120,7 +120,7 @@ def test_unrecognized_events_layout_is_source_failure():
         return _Response(text="<main>Unexpected layout</main>")
 
     with (
-        patch("src.sources.mosir_tychy.requests.get", side_effect=get),
+        patch("src.integrations.mosir_tychy.source.requests.get", side_effect=get),
         pytest.raises(RuntimeError, match="layout was not recognized"),
     ):
         _source().search_events("Tychy", 0)
@@ -132,7 +132,7 @@ def test_http_failure_is_source_failure_without_response_details():
 
     with (
         patch(
-            "src.sources.mosir_tychy.requests.get",
+            "src.integrations.mosir_tychy.source.requests.get",
             return_value=_Response(error=requests.HTTPError(response=response)),
         ),
         pytest.raises(RuntimeError, match=r"MOSiR Tychy request failed \(HTTP 503\)"),
@@ -143,7 +143,7 @@ def test_http_failure_is_source_failure_without_response_details():
 def test_timeout_is_source_failure():
     with (
         patch(
-            "src.sources.mosir_tychy.requests.get",
+            "src.integrations.mosir_tychy.source.requests.get",
             side_effect=requests.Timeout(),
         ),
         pytest.raises(RuntimeError, match=r"MOSiR Tychy request failed \(Timeout\)"),
@@ -154,7 +154,7 @@ def test_timeout_is_source_failure():
 def test_invalid_calendar_payload_is_source_failure():
     with (
         patch(
-            "src.sources.mosir_tychy.requests.get",
+            "src.integrations.mosir_tychy.source.requests.get",
             return_value=_Response(json_payload={"date": "2026-09-10"}),
         ),
         pytest.raises(RuntimeError, match="calendar returned an invalid payload"),
@@ -165,7 +165,7 @@ def test_invalid_calendar_payload_is_source_failure():
 def test_invalid_calendar_json_is_source_failure():
     with (
         patch(
-            "src.sources.mosir_tychy.requests.get",
+            "src.integrations.mosir_tychy.source.requests.get",
             return_value=_Response(json_payload=ValueError("invalid JSON")),
         ),
         pytest.raises(RuntimeError, match="returned invalid JSON"),
