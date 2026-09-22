@@ -72,4 +72,6 @@ def filter_unseen_events(
 def _event_was_seen(event: Event, seen_ids: set[str]) -> bool:
     if event.id in seen_ids:
         return True
+    # Reads accept pre-namespacing Ticketmaster IDs for compatibility with
+    # existing history; all new writes use the namespaced Event.id.
     return event.source == "ticketmaster" and event.source_event_id in seen_ids

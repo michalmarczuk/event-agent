@@ -27,6 +27,8 @@ def enrich_ticketmaster_prices(
         if recommendation.source == "ticketmaster"
         and _is_ticketmaster_url(recommendation.url)
     ]
+    # Source identity is the first guard; hostname validation protects against
+    # a malformed or stale canonical URL before opening a browser.
     if not ticketmaster_recommendations:
         return
 

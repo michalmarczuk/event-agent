@@ -16,6 +16,10 @@ tailscale_socket="$runtime_dir/tailscaled.sock"
 auth_file="$runtime_dir/authkey"
 
 umask 077
+# Userspace networking keeps the production container independent of a kernel
+# TUN device while routing browser traffic through the configured exit node.
+# The scraper consumes this local SOCKS5 endpoint; API clients keep their
+# normal network path unless they are explicitly configured otherwise.
 printf '%s' "$TAILSCALE_AUTHKEY" > "$auth_file"
 unset TAILSCALE_AUTHKEY
 
@@ -63,6 +67,8 @@ export SCRAPER_PROXY_URL=socks5://127.0.0.1:1055
 
 echo "Starting event agent..."
 
+# HF production uses the same application entrypoint as the image CMD; the
+# wrapper only adds Tailscale/SOCKS setup and a virtual display for Camoufox.
 xvfb-run -a -e /dev/stderr \
     python -u src/daily.py
 

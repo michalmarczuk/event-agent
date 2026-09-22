@@ -53,6 +53,8 @@ def main() -> None:
         )
         print(formatted_message)
         send_telegram_message(formatted_message)
+        # Persist only after delivery succeeds, so a failed notification does
+        # not mark recommendations as seen and suppress a future retry.
         updated_seen_event_ids = seen_event_ids | result.recommended_event_ids
         save_seen_event_ids(updated_seen_event_ids)
         logger.info(

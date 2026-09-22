@@ -18,7 +18,11 @@ _EVENT_VENUE = "Fake Venue"
 
 @dataclass(frozen=True)
 class SystemScenario:
-    """Describe fake provider behavior and initial state for one System Test."""
+    """Describe the fake external world for one black-box System Test.
+
+    Assertions intentionally live in the System Test layer; this object only
+    configures provider responses and initial persistence state.
+    """
 
     name: str
     ticketmaster_events: tuple[dict[str, Any], ...] = ()

@@ -21,6 +21,7 @@ tailscale_socket="$runtime_dir/tailscaled.sock"
 auth_file="$runtime_dir/authkey"
 
 umask 077
+# Smoke tests use the same userspace exit-node route as the HF runtime.
 printf '%s' "$TAILSCALE_AUTHKEY" > "$auth_file"
 unset TAILSCALE_AUTHKEY
 
@@ -67,6 +68,8 @@ rm -f "$auth_file"
 export SCRAPER_PROXY_URL=socks5://127.0.0.1:1055
 
 echo "Starting live smoke tests..."
+# This is a separate test-image entrypoint: it runs pytest, not the production
+# application's daily job, while sharing the networking bootstrap semantics.
 
 set +e
 xvfb-run -a -e /dev/stderr "$@"

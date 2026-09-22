@@ -21,7 +21,13 @@ _SOURCE_PRIORITY = {
 
 
 class EventCatalog:
-    """Search configured sources in order while isolating partial failures."""
+    """Aggregate normalized events while preserving source failure semantics.
+
+    A partial source failure is a degraded but usable discovery result; only
+    failure of every configured source makes discovery fail. Deduplication is
+    intentionally conservative, and Ticketmaster wins exact cross-source
+    duplicates without mixing fields between providers.
+    """
 
     def __init__(self, sources: Sequence[EventSource]) -> None:
         self._sources = tuple(sources)
@@ -45,6 +51,8 @@ class EventCatalog:
                 source_event_count = len(source_events)
                 events.extend(source_events)
             except Exception as error:
+                # One unavailable provider must not hide events from healthy
+                # sources; the all-sources case is handled after the loop.
                 failed_sources += 1
                 logger.warning(
                     "Event source search failed source=%s",
@@ -83,6 +91,7 @@ class EventCatalog:
             )
             raise RuntimeError("All event sources failed")
 
+        # Deduplicate only after all providers have returned normalized events.
         deduplicated_events, duplicate_count = _deduplicate_events(events)
         self._log_search_summary(
             outcome="success",

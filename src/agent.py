@@ -148,7 +148,11 @@ class _GroundedEvent:
 
 @dataclass
 class _GroundingStore:
-    """Own provider-authoritative event data gathered during one agent run."""
+    """Own provider-authoritative event data for one agent conversation.
+
+    The model may choose a grounded event ID and write editorial fields, but
+    source identity, canonical URL, and admission always come from this store.
+    """
 
     _events: dict[str, _GroundedEvent]
 
@@ -272,6 +276,8 @@ def _parse_recommendations(
         grounded_event = grounding.require(event_id)
         if recommendation.get("category") not in RECOMMENDATION_CATEGORIES:
             raise ValueError("Agent response contains an unsupported category")
+        # Hydrate provider-owned fields after validation; model output is not
+        # authoritative for source identity, URL, or admission.
         parsed.append(
             Recommendation(
                 **(
@@ -419,7 +425,11 @@ def _execute_tool_call(
 
 
 def build_agent_dependencies(settings: Settings) -> _AgentDependencies:
-    """Build the production collaborators for one agent conversation."""
+    """Compose the production collaborators for one agent conversation.
+
+    Keeping construction here makes the runtime boundary explicit while the
+    conversation loop remains focused on tool calls and response handling.
+    """
     ticketmaster_client = TicketmasterClient(
         settings.ticketmaster_api_key,
         settings.search_location,
@@ -450,7 +460,11 @@ def run_agent(
     user_input: str,
     seen_event_ids: set[str] | None = None,
 ) -> AgentRunResult:
-    """Run the agent conversation and return recommendations and their event IDs."""
+    """Run one function-calling conversation and return grounded recommendations.
+
+    Tool failures remain recoverable for the model loop, while the discovery
+    failure latch is preserved for the caller's delivery/persistence decision.
+    """
     settings = load_settings()
     dependencies = build_agent_dependencies(settings)
     seen_event_ids = set(seen_event_ids or ())
