@@ -71,6 +71,8 @@ class QaseMosirReporter:
         *,
         require_result: bool = True,
     ) -> dict[str, Any] | None:
+        """Perform one Qase request while keeping token details out of errors."""
+
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = Request(
             f"{_API_BASE_URL}{path}",

@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def send_telegram_message(message: str) -> None:
+    """Send one Telegram message and raise a sanitized delivery error."""
+
     settings = load_settings()
     api_base_url = settings.telegram_api_base_url.rstrip("/")
 

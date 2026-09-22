@@ -326,6 +326,8 @@ def _id(entity: dict[str, Any], kind: str) -> int:
 
 
 def _validate_case_reference(detail: dict[str, Any], case: dict[str, Any]) -> None:
+    """Verify that a referenced Qase ID still resolves to the expected case."""
+
     case_id = case["qase_id"]
     resolved_id = _id(detail, "case")
     if resolved_id != case_id:

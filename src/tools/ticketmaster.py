@@ -52,6 +52,8 @@ def _get_ticketmaster_data(
 
 
 class TicketmasterClient:
+    """Call Ticketmaster Discovery endpoints using raw provider IDs."""
+
     def __init__(
         self,
         api_key: str,
@@ -173,6 +175,8 @@ class TicketmasterClient:
         return None
 
     def get_event_details(self, event_id: str) -> EventDetails:
+        """Fetch details for one raw Ticketmaster event ID."""
+
         logger.info("Fetching Ticketmaster event details event_id=%s", event_id)
 
         url = f"{self.api_base_url}/events/{event_id}.json"

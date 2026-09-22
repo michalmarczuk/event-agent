@@ -275,6 +275,8 @@ def _safe_path(raw_path: str) -> str:
 
 
 class _RequestJournal:
+    """Thread-safe journal that stores only redacted fake-service requests."""
+
     def __init__(self) -> None:
         self._entries: list[dict[str, Any]] = []
         self._lock = Lock()
@@ -303,6 +305,8 @@ class _RequestJournal:
 
 
 class _FakeRequestHandler(BaseHTTPRequestHandler):
+    """Route configured fake provider requests and record safe outcomes."""
+
     protocol_version = "HTTP/1.1"
 
     def __init__(

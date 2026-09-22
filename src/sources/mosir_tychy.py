@@ -153,6 +153,8 @@ class MosirTychySource:
 
 
 class _EventCardParser(HTMLParser):
+    """Extract event-card links while recognizing the listing container."""
+
     def __init__(self) -> None:
         super().__init__()
         self.cards: list[_EventCard] = []
@@ -185,6 +187,8 @@ class _EventCardParser(HTMLParser):
 
 
 class _EventDetailsParser(HTMLParser):
+    """Extract canonical URL and venue from a MOSiR detail page."""
+
     def __init__(self) -> None:
         super().__init__()
         self.canonical_url: str | None = None

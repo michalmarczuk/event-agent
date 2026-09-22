@@ -133,6 +133,8 @@ RESPONSE_FORMAT = {
 
 @dataclass
 class AgentRunResult:
+    """Result of one agent run, including discovery failure state."""
+
     recommendations: list[Recommendation]
     recommended_event_ids: set[str]
     discovery_failed: bool
@@ -140,6 +142,8 @@ class AgentRunResult:
 
 @dataclass(frozen=True)
 class _GroundedEvent:
+    """Provider-authoritative metadata for one namespaced event ID."""
+
     source: str
     source_event_id: str
     url: str | None

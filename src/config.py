@@ -13,6 +13,8 @@ _DEFAULT_MOSIR_TYCHY_BASE_URL = "https://mosir.tychy.pl"
 
 @dataclass(frozen=True)
 class SearchLocation:
+    """Configured home location and radius used for event discovery."""
+
     name: str
     geo_point: str
     radius_km: int
@@ -20,6 +22,8 @@ class SearchLocation:
 
 @dataclass(frozen=True)
 class Settings:
+    """Validated application settings loaded from environment variables."""
+
     openai_api_key: str
     ticketmaster_api_key: str
     telegram_bot_token: str
@@ -36,6 +40,8 @@ class Settings:
 
 @dataclass(frozen=True)
 class ElasticLoggingSettings:
+    """Optional credentials and endpoint for Elastic OTLP log export."""
+
     elastic_otlp_endpoint: str | None
     elastic_api_key: str | None
 
@@ -68,6 +74,8 @@ def load_elastic_logging_settings() -> ElasticLoggingSettings:
 
 
 def load_settings() -> Settings:
+    """Load required settings and validate their runtime configuration."""
+
     load_dotenv()
 
     missing = [
