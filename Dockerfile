@@ -27,7 +27,11 @@ FROM runtime-base AS test-runtime
 COPY requirements-test.txt .
 RUN pip install --no-cache-dir -r requirements-test.txt
 
-COPY scripts/run_hf_qase_smoke.sh scripts/run_hf_smoke.sh scripts/run_hf_smoke_runtime.sh scripts/
+COPY \
+    scripts/system_integration/run_hf_smoke.sh \
+    scripts/system_integration/run_hf_smoke_qase.sh \
+    scripts/system_integration/
+COPY scripts/support/run_hf_smoke_runtime.sh scripts/support/
 COPY tests/__init__.py tests/conftest.py tests/
 COPY tests/system_integration/ tests/system_integration/
 COPY tests/system/ tests/system/
@@ -38,28 +42,30 @@ COPY \
     tests/support/
 COPY pytest.ini qase.config.json ./
 RUN chmod 0755 \
-    scripts/run_hf_qase_smoke.sh \
-    scripts/run_hf_smoke.sh \
-    scripts/run_hf_smoke_runtime.sh
+    scripts/system_integration/run_hf_smoke.sh \
+    scripts/system_integration/run_hf_smoke_qase.sh \
+    scripts/support/run_hf_smoke_runtime.sh
 
 ENTRYPOINT ["tini", "-g", "--"]
-CMD ["/app/scripts/run_hf_smoke.sh"]
+CMD ["/app/scripts/system_integration/run_hf_smoke.sh"]
 
 FROM runtime-base AS production
 
 COPY src/ src/
 COPY data/ data/
+COPY scripts/__init__.py scripts/
 COPY \
-    scripts/run_hf.sh \
-    scripts/run_hf_mosir_live_smoke.sh \
-    scripts/run_hf_qase_mosir_live_smoke.sh \
-    scripts/run_mosir_live_smoke.py \
-    scripts/qase_mosir_smoke_reporter.py \
-    scripts/
+    scripts/system_integration/__init__.py \
+    scripts/system_integration/run_hf_mosir_live_smoke.sh \
+    scripts/system_integration/run_hf_mosir_live_smoke_qase.sh \
+    scripts/system_integration/run_mosir_live_smoke.py \
+    scripts/system_integration/qase_mosir_smoke_reporter.py \
+    scripts/system_integration/
+COPY scripts/runtime/run_hf_production.sh scripts/runtime/
 RUN chmod 0755 \
-    scripts/run_hf.sh \
-    scripts/run_hf_mosir_live_smoke.sh \
-    scripts/run_hf_qase_mosir_live_smoke.sh
+    scripts/runtime/run_hf_production.sh \
+    scripts/system_integration/run_hf_mosir_live_smoke.sh \
+    scripts/system_integration/run_hf_mosir_live_smoke_qase.sh
 
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["xvfb-run", "-a", "python", "-m", "src.app.daily"]

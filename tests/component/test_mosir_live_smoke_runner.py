@@ -1,4 +1,4 @@
-from scripts import run_mosir_live_smoke as smoke
+from scripts.system_integration import run_mosir_live_smoke as smoke
 from src.events.models import Event
 
 

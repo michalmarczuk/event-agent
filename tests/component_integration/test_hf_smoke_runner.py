@@ -4,12 +4,23 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "run_hf_smoke.sh"
+_SCRIPT = (
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "system_integration"
+    / "run_hf_smoke.sh"
+)
 _QASE_SCRIPT = (
-    Path(__file__).resolve().parents[2] / "scripts" / "run_hf_qase_smoke.sh"
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "system_integration"
+    / "run_hf_smoke_qase.sh"
 )
 _RUNTIME_SCRIPT = (
-    Path(__file__).resolve().parents[2] / "scripts" / "run_hf_smoke_runtime.sh"
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "support"
+    / "run_hf_smoke_runtime.sh"
 )
 _QASE_SECRET = "qase-smoke-test-secret"
 
@@ -31,12 +42,14 @@ def _environment_without_reporting() -> dict[str, str]:
 
 
 def _copy_runner_with_runtime(tmp_path: Path, runner: Path) -> tuple[Path, Path]:
-    copied_runner = tmp_path / runner.name
+    copied_runner = tmp_path / "scripts" / "system_integration" / runner.name
+    copied_runner.parent.mkdir(parents=True)
     copied_runner.write_text(runner.read_text(encoding="utf-8"), encoding="utf-8")
     copied_runner.chmod(0o755)
 
     capture_path = tmp_path / "capture"
-    runtime = tmp_path / _RUNTIME_SCRIPT.name
+    runtime = tmp_path / "scripts" / "support" / _RUNTIME_SCRIPT.name
+    runtime.parent.mkdir(parents=True)
     runtime.write_text(
         """#!/bin/sh
 printf '%s\\n' "$@" > "${HF_SMOKE_CAPTURE}.args"

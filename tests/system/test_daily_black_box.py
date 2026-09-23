@@ -33,7 +33,7 @@ _TEST_SECRETS = (
 def _required_environment_path(name: str) -> Path:
     value = os.getenv(name)
     if not value:
-        pytest.skip("requires scripts/run_system_tests.sh")
+        pytest.skip("requires scripts/system/run_system_tests.sh")
     return Path(value)
 
 

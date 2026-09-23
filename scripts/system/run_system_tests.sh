@@ -5,7 +5,7 @@ export QASE_MODE=off
 unset QASE_API_TOKEN QASE_TESTOPS_API_TOKEN
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-project_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+project_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 production_image=${EVENT_AGENT_SYSTEM_PRODUCTION_IMAGE:-event-agent:system-test}
 test_image=${EVENT_AGENT_SYSTEM_TEST_IMAGE:-event-agent-tests:system-test}
 run_id="event-agent-system-$$"

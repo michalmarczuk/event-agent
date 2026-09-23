@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from scripts import sync_qase_cases as qase
+from scripts.admin import sync_qase_cases as qase
 from tests.support.qase_sync_support import (
     FakeSession,
     _list_response,

@@ -3,7 +3,7 @@ import json
 import requests
 import yaml
 
-from scripts import sync_qase_cases as qase
+from scripts.admin import sync_qase_cases as qase
 
 _TEST_CASES_YAML = """\
 suites:

@@ -5,13 +5,14 @@ from urllib.error import HTTPError
 
 import pytest
 
-from scripts import qase_mosir_smoke_reporter as reporter_module
+from scripts.system_integration import qase_mosir_smoke_reporter as reporter_module
 
 _TOKEN = "qase-mosir-test-token"
 _WRAPPER = (
     Path(__file__).resolve().parents[2]
     / "scripts"
-    / "run_hf_qase_mosir_live_smoke.sh"
+    / "system_integration"
+    / "run_hf_mosir_live_smoke_qase.sh"
 )
 
 
@@ -222,5 +223,5 @@ def test_wrapper_requires_the_token_and_runs_the_production_probe():
     script = _WRAPPER.read_text(encoding="utf-8")
 
     assert "QASE_API_TOKEN is required" in script
-    assert "scripts.qase_mosir_smoke_reporter" in script
-    assert "/app/scripts/run_hf_mosir_live_smoke.sh" in script
+    assert "scripts.system_integration.qase_mosir_smoke_reporter" in script
+    assert "/app/scripts/system_integration/run_hf_mosir_live_smoke.sh" in script

@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+cd "$project_root"
+
 if [ -z "${TAILSCALE_AUTHKEY:-}" ]; then
     echo "TAILSCALE_AUTHKEY is required" >&2
     exit 1

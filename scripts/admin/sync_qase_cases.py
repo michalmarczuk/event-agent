@@ -12,7 +12,7 @@ import yaml
 
 API_BASE_URL = "https://api.qase.io/v1"
 PROJECT_CODE = "EA"
-CASES_FILE = Path(__file__).resolve().parents[1] / "tests" / "qase_cases.yaml"
+CASES_FILE = Path(__file__).resolve().parents[2] / "tests" / "qase_cases.yaml"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT = 15
 PRIORITIES = {"undefined": 0, "high": 1, "medium": 2, "low": 3}

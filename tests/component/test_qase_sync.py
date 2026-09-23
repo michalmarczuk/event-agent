@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from scripts import sync_qase_cases as qase
+from scripts.admin import sync_qase_cases as qase
 from tests.support.qase_sync_support import (
     FakeSession,
     _list_response,
@@ -192,7 +192,10 @@ def test_qase_catalog_and_pytest_traceability_are_complete():
     }
     assert production_smoke_ids == {39}
     production_runner = (
-        tests_root.parent / "scripts" / "run_hf_qase_mosir_live_smoke.sh"
+        tests_root.parent
+        / "scripts"
+        / "system_integration"
+        / "run_hf_mosir_live_smoke_qase.sh"
     )
     assert "case_id=39" in production_runner.read_text(encoding="utf-8")
 

@@ -206,7 +206,7 @@ jobs:
           EVENT_AGENT_SYSTEM_SKIP_BUILD=1 \
           EVENT_AGENT_SYSTEM_PRODUCTION_IMAGE="ghcr.io/michalmarczuk/event-agent:sha-${GITHUB_SHA}" \
           EVENT_AGENT_SYSTEM_TEST_IMAGE="ghcr.io/michalmarczuk/event-agent-tests:sha-${GITHUB_SHA}" \
-          ./scripts/run_system_tests.sh
+          ./scripts/system/run_system_tests.sh
 
       - name: Upload system Allure results
         if: ${{ always() }}

@@ -21,5 +21,7 @@ export QASE_TESTOPS_RUN_TAGS=live,smoke,hf
 export QASE_TESTOPS_SHOW_PUBLIC_REPORT_LINK=false
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "$script_dir/run_hf_smoke_runtime.sh" \
+project_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+cd "$project_root"
+exec "$project_root/scripts/support/run_hf_smoke_runtime.sh" \
     pytest tests/system_integration --run-smoke -m "smoke and live" -q
