@@ -13,26 +13,30 @@ Read [Architecture](docs/architecture.md) for system behavior and
 
 ## Repository Map
 
-- `src/agent.py`: OpenAI Responses API orchestration, tool loop, grounding, and
+- `src/agent/runner.py`: OpenAI Responses API orchestration, tool loop, grounding, and
   recommendation validation.
-- `src/tools/registry.py`: OpenAI tool schemas and dispatch.
-- `src/tools/ticketmaster.py`: Ticketmaster Discovery API client.
-- `src/tools/ticketmaster_price_scraper.py`: Camoufox browser lifecycle and
+- `src/agent/tools/registry.py`: OpenAI tool schemas and dispatch.
+- `src/integrations/ticketmaster/client.py`: Ticketmaster Discovery API client.
+- `src/integrations/ticketmaster/price_scraper.py`: Camoufox browser lifecycle and
   visible Ticketmaster price extraction.
-- `src/ticketmaster_enrichment.py`: deterministic post-selection price
+- `src/integrations/ticketmaster/enrichment.py`: deterministic post-selection price
   enrichment and its failure isolation.
-- `src/telegram_formatter.py`: deterministic Telegram HTML.
-- `src/telegram_notifier.py`: Telegram transport.
-- `src/history.py`: validated, atomic seen-ID persistence.
-- `src/logging_config.py`: root ECS JSON stdout logging, stable service
+- `src/integrations/telegram/formatter.py`: deterministic Telegram HTML.
+- `src/integrations/telegram/notifier.py`: Telegram transport.
+- `src/persistence/history.py`: validated, atomic seen-ID persistence.
+- `src/observability/logging.py`: root ECS JSON stdout logging, stable service
   metadata, and optional direct OTLP log-export lifecycle.
 - `src/config.py`: the only Python application module that reads environment
   variables; deployment wrappers may read their documented infrastructure
   variables.
-- `src/daily.py`: composition root and delivery-before-persistence sequencing.
-- `src/models.py`: shared domain dataclasses.
-- `scripts/run_hf.sh`: Hugging Face-only Tailscale bootstrap and headed process
-  startup.
+- `src/app/daily.py`: application entrypoint and delivery-before-persistence sequencing.
+- `src/events/models.py`: shared provider-neutral event dataclasses.
+- `scripts/runtime/run_hf_production.sh`: Hugging Face Tailscale bootstrap and
+  headed production process startup.
+- `scripts/system/run_system_tests.sh`: black-box System Test driver.
+- `scripts/system_integration/run_hf_smoke.sh`: source-free pytest live smoke
+  runner; `scripts/system_integration/run_hf_smoke_qase.sh` enables Qase.
+- `python -m scripts.admin.sync_qase_cases`: manual Qase catalog administration.
 
 Do not move responsibilities across these boundaries without a concrete need.
 
@@ -91,7 +95,7 @@ logs, exceptions, model-visible output, Git, or Docker images.
 ## Deployment Rules
 
 - Keep the default container command usable without Tailscale.
-- Hugging Face runs `/app/scripts/run_hf.sh`, which owns Tailscale userspace
+- Hugging Face runs `/app/scripts/runtime/run_hf_production.sh`, which owns Tailscale userspace
   networking and then runs the application through Xvfb while retaining wrapper
   lifecycle cleanup.
 - Keep the SOCKS5 listener bound to `127.0.0.1`; never expose the Raspberry Pi

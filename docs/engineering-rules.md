@@ -43,7 +43,7 @@ refactors must preserve.
 
 ## Agent and Enrichment Boundary
 
-- Keep LLM orchestration in `src/agent.py` separate from deterministic price
+- Keep LLM orchestration in `src/agent/runner.py` separate from deterministic price
   enrichment.
 - Tools, not model claims, ground event IDs. Only successful tool results may
   make an ID eligible for recommendation.
@@ -137,7 +137,7 @@ git diff --check
 - Treat `TAILSCALE_AUTHKEY` as a secret: pass it to Hugging Face as an encrypted
   Job secret and never print it or enable shell tracing around it.
 - Treat `TAILSCALE_EXIT_NODE` and `SCRAPER_PROXY_URL` as non-secret runtime
-  configuration. `scripts/run_hf.sh` normally owns the latter.
+  configuration. `scripts/runtime/run_hf_production.sh` normally owns the latter.
 - Never include API keys, bot tokens, or credential-bearing URLs in logs,
   exceptions, or model-visible tool outputs.
 - When an original request exception may contain a credentialed URL, raise the
@@ -164,7 +164,11 @@ git diff --check
 ## Deployment Rules
 
 - The default container command must remain usable without Tailscale.
-- Hugging Face must invoke `/app/scripts/run_hf.sh`; network-bootstrap failure
+- Use package-qualified `src.*` imports; do not execute source modules as files.
+- The canonical application entrypoint is `python -m src.app.daily`.
+- `events/` must not depend on `integrations/`; integrations must not depend on
+  `app/`.
+- Hugging Face must invoke `/app/scripts/runtime/run_hf_production.sh`; network-bootstrap failure
   must prevent the Python application from starting.
 - The wrapper must use Tailscale userspace networking and keep its SOCKS5
   listener bound to container-local `127.0.0.1`.

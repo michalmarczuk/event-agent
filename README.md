@@ -87,11 +87,11 @@ pip install -r requirements-test.txt
 pytest -q tests/component tests/component_integration
 python -m camoufox fetch
 cp .env.example .env  # fill in local credentials before running the job
-python src/daily.py
+python -m src.app.daily
 ```
 
 Camoufox runs headed. On a headless Linux host, use
-`xvfb-run -a python src/daily.py`. Tests need neither browser download nor
+`xvfb-run -a python -m src.app.daily`. Tests need neither browser download nor
 application secrets. The scraper uses a bounded, non-fatal readiness wait for
 Ticketmaster content rather than a fixed post-navigation sleep.
 
@@ -123,7 +123,7 @@ docker run --rm --env-file .env -v "$PWD/data:/app/data" event-agent:local
 
 ### Hugging Face runtime
 
-Hugging Face Jobs can schedule the image with `/app/scripts/run_hf.sh` as its
+Hugging Face Jobs can schedule the image with `/app/scripts/runtime/run_hf_production.sh` as its
 command and persistent `/app/data` storage. The wrapper starts Tailscale in
 userspace mode, connects to the Raspberry Pi exit node, sets a loopback SOCKS5
 proxy for Camoufox, and runs the job through Xvfb. Keep credentials in runtime

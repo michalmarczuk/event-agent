@@ -209,7 +209,7 @@ Run black-box System Tests. Docker builds both local images unless the script is
 configured to use pre-built images:
 
 ```bash
-./scripts/run_system_tests.sh
+./scripts/system/run_system_tests.sh
 ```
 
 Collect the live System Integration suite without calling external services:

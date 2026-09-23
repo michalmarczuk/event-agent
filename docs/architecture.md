@@ -88,13 +88,13 @@ delivery, history, and log export are deterministic application behavior.
 
 ## End-to-end Flow
 
-One `daily.py` execution branches explicitly when discovery yields no eligible
+One `src.app.daily` execution branches explicitly when discovery yields no eligible
 new events; it otherwise delivers only grounded final recommendations.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#07111f', 'primaryColor': '#102a43', 'primaryTextColor': '#e6f7ff', 'primaryBorderColor': '#22d3ee', 'secondaryColor': '#25133f', 'tertiaryColor': '#12352b', 'lineColor': '#22d3ee', 'fontFamily': 'ui-sans-serif, system-ui', 'fontSize': '17px'}, 'flowchart': {'nodeSpacing': 35, 'rankSpacing': 45}}}%%
 flowchart TB
-    start(["daily.py"]) --> load["Load history"]
+    start(["src.app.daily"]) --> load["Load history"]
 
     subgraph discovery["Discovery"]
         search["Discovery +<br/>pages"] --> filter["Filter canceled<br/>+ seen"]
@@ -144,33 +144,44 @@ history changes only after a successful recommendation delivery.
 
 | Module | Responsibility |
 | --- | --- |
-| `src/daily.py` | Compose one scheduled run and enforce delivery-before-persistence ordering. |
-| `src/agent.py` | Bootstrap runtime dependencies, orchestrate the simple Responses function-calling loop, own grounding state, and validate structured recommendations. |
-| `src/models.py` | Define shared event, admission, and recommendation dataclasses. |
-| `src/event_source.py` | Define the small discovery-source contract used by the catalog. |
-| `src/event_catalog.py` | Aggregate source results and apply conservative cross-source deduplication. |
-| `src/sources/ticketmaster.py` | Adapt Ticketmaster Discovery results to the shared Event model. |
-| `src/sources/mosir_tychy.py` | Discover Tychy events through the MOSiR calendar and server-rendered detail pages. |
+| `src/app/daily.py` | Compose one scheduled run and enforce delivery-before-persistence ordering. |
+| `src/agent/runner.py` | Bootstrap runtime dependencies, orchestrate the simple Responses function-calling loop, own grounding state, and validate structured recommendations. |
+| `src/events/models.py` | Define shared event, admission, and recommendation dataclasses. |
+| `src/events/source.py` | Define the small discovery-source contract used by the catalog. |
+| `src/events/catalog.py` | Aggregate source results and apply conservative cross-source deduplication. |
+| `src/integrations/ticketmaster/source.py` | Adapt Ticketmaster Discovery results to the shared Event model. |
+| `src/integrations/mosir_tychy/source.py` | Discover Tychy events through the MOSiR calendar and server-rendered detail pages. |
 | `src/config.py` | Read and validate environment configuration. |
-| `src/history.py` | Load, validate, filter, and atomically persist seen event IDs. |
-| `src/logging_config.py` | Configure ECS JSON stdout logging and the optional direct OTLP log-export lifecycle. |
-| `src/tools/registry.py` | Define the model-visible tools and dispatch them to configured handlers. |
-| `src/tools/ticketmaster.py` | Call the Ticketmaster Discovery API and map responses into domain models. |
-| `src/tools/ticketmaster_price_scraper.py` | Own Camoufox and extract visible PLN prices from Ticketmaster pages. |
-| `src/ticketmaster_enrichment.py` | Apply deterministic post-selection price enrichment while isolating scraper failures. |
-| `src/telegram_formatter.py` | Render escaped, deterministic Telegram HTML. |
-| `src/telegram_notifier.py` | Deliver the message through the Telegram Bot API. |
-| `scripts/run_hf.sh` | Establish Hugging Face Tailscale egress and start the headed daily process. |
+| `src/persistence/history.py` | Load, validate, filter, and atomically persist seen event IDs. |
+| `src/observability/logging.py` | Configure ECS JSON stdout logging and the optional direct OTLP log-export lifecycle. |
+| `src/agent/tools/registry.py` | Define the model-visible tools and dispatch them to configured handlers. |
+| `src/integrations/ticketmaster/client.py` | Call the Ticketmaster Discovery API and map responses into domain models. |
+| `src/integrations/ticketmaster/price_scraper.py` | Own Camoufox and extract visible PLN prices from Ticketmaster pages. |
+| `src/integrations/ticketmaster/enrichment.py` | Apply deterministic post-selection price enrichment while isolating scraper failures. |
+| `src/integrations/telegram/formatter.py` | Render escaped, deterministic Telegram HTML. |
+| `src/integrations/telegram/notifier.py` | Deliver the message through the Telegram Bot API. |
+| `scripts/runtime/run_hf_production.sh` | Establish Hugging Face Tailscale egress and start the headed daily process. |
 
-`src/agent.py` does not know how browser scraping works, and the scraper does
-not know about agent conversations or Telegram. `src/daily.py` is the small
+`src/agent/runner.py` does not know how browser scraping works, and the scraper does
+not know about agent conversations or Telegram. `src/app/daily.py` is the small
 composition root that sequences these boundaries.
+
+### Operational entrypoints
+
+The repository keeps runtime, system-test, live-integration, support, and
+administrative commands separate:
+
+- `scripts/runtime/run_hf_production.sh` starts the production application on Hugging Face.
+- `scripts/system/run_system_tests.sh` orchestrates Docker black-box System Tests.
+- `scripts/system_integration/` contains the four pytest live checks, the MOSiR production-image probe, and their optional Qase wrappers.
+- `scripts/support/run_hf_smoke_runtime.sh` contains shared live-smoke bootstrap logic.
+- `scripts/admin/sync_qase_cases.py` synchronizes the Qase case catalog manually.
 
 ## Application Logging
 
 The ECS JSON stdout handler is always active and retains stable service
 metadata. When both `ELASTIC_OTLP_ENDPOINT` and `ELASTIC_API_KEY` are present,
-`src/logging_config.py` also attaches one OpenTelemetry logging handler backed
+`src/observability/logging.py` also attaches one OpenTelemetry logging handler backed
 by a batch processor and a direct OTLP/HTTP exporter to Elastic Managed OTLP.
 The endpoint is non-secret configuration; the API key is a secret and is never
 written to logs.
@@ -190,7 +201,7 @@ Structured records expose the boundaries of a run without full event payloads:
   best-available control was found. Successful extraction also records the
   price range and currency.
 
-`src/daily.py` shuts down the logging pipeline in its final cleanup so the
+`src/app/daily.py` shuts down the logging pipeline in its final cleanup so the
 short-lived job can flush batch-exported records. Missing, partial, or failing
 telemetry configuration cannot change delivery or persistence behavior. This
 integration covers logs only: it uses no OpenTelemetry Collector,
@@ -236,7 +247,7 @@ the aggregated `search_events` tool, and a strict JSON response schema. While th
 response contains function calls, it:
 
 1. Parses the tool arguments.
-2. Dispatches through `src/tools/registry.py`.
+2. Dispatches through `src/agent/tools/registry.py`.
 3. Applies grounding and deduplication state only after successful execution.
 4. Serializes a sanitized model-visible view; search Event dictionaries omit
    `admission` and its nested price data.
@@ -299,7 +310,7 @@ recommendations. Discovered but unselected IDs are not persisted.
 
 `Admission` is provider-owned data. Ticketmaster API price ranges may establish
 an initial value during discovery. After the LLM selects recommendations,
-`src/ticketmaster_enrichment.py` processes only final recommendations whose
+`src/integrations/ticketmaster/enrichment.py` processes only final recommendations whose
 provider source is `ticketmaster` and whose canonical URL belongs to
 `ticketmaster.pl` or one of its subdomains. MOSiR recommendations are not sent
 through Camoufox or Ticketmaster price enrichment.
@@ -442,9 +453,9 @@ flowchart TB
     end
 
     subgraph hf["Hugging Face Runtime"]
-        job["HF Job"] --> wrapper["run_hf.sh"]
+        job["HF Job"] --> wrapper["run_hf_production.sh"]
         authkey["TAILSCALE_AUTHKEY<br/>secret"] --> wrapper
-        wrapper --> app["daily.py +<br/>Camoufox"]
+        wrapper --> app["src.app.daily +<br/>Camoufox"]
         wrapper --> tailscale["Tailscale<br/>userspace"]
         tailscale --> socks["SOCKS5<br/>127.0.0.1:1055"]
         storage["/app/data"] <--> app
@@ -491,13 +502,13 @@ The container has two explicit startup paths:
 
 ```text
 Local/default container:
-    tini -> xvfb-run -> python src/daily.py
+    tini -> xvfb-run -> python -m src.app.daily
 
 Hugging Face Job:
-    tini -> scripts/run_hf.sh (retains process and cleanup traps)
+    tini -> scripts/runtime/run_hf_production.sh (retains process and cleanup traps)
          -> tailscaled userspace SOCKS5 on 127.0.0.1:1055
          -> Raspberry Pi exit node
-         -> xvfb-run -> python src/daily.py (child process)
+         -> xvfb-run -> python -m src.app.daily (child process)
          -> wrapper waits, then cleans up tailscaled
 ```
 

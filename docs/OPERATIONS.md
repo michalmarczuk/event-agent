@@ -32,10 +32,16 @@ only; it does not publish pytest execution results.
 
 ### Qase case catalog administration
 
-`scripts/sync_qase_cases.py` is a manual administrative tool for synchronizing
+`scripts/admin/sync_qase_cases.py` is a manual administrative tool for synchronizing
 the Qase test-case catalog from `tests/qase_cases.yaml`. It is not part of the
 normal CI pipeline and should not run on every build. It requires
 `QASE_API_TOKEN`.
+
+For a read-only catalog check, run:
+
+```bash
+python -m scripts.admin.sync_qase_cases --dry-run
+```
 
 Generate the same latest-only Allure report locally after installing the
 official Allure CLI:
@@ -58,14 +64,14 @@ configuration from the sanitized template:
 python -m camoufox fetch
 cp .env.example .env
 # Replace required application placeholders; Tailscale is optional locally.
-python src/daily.py
+python -m src.app.daily
 ```
 
 Camoufox currently runs with `headless=False`. On headless Linux, provide a
 virtual display:
 
 ```bash
-xvfb-run -a python src/daily.py
+xvfb-run -a python -m src.app.daily
 ```
 
 ## Environment Variables
@@ -87,7 +93,7 @@ xvfb-run -a python src/daily.py
 - `EVENT_SEARCH_RADIUS_KM`: Positive Ticketmaster search radius in kilometers,
   currently `50`.
 - `SCRAPER_PROXY_URL`: Optional Camoufox proxy server. Leave it unset for direct
-  local access; `scripts/run_hf.sh` sets it internally to the local Tailscale
+  local access; `scripts/runtime/run_hf_production.sh` sets it internally to the local Tailscale
   SOCKS5 endpoint.
 
 The Hugging Face wrapper reads two deployment variables directly:
@@ -137,7 +143,8 @@ Camoufox uses its API.
 
 The four pytest System Integration checks run from `event-agent-tests`. The
 fifth logical live check, MOSiR discovery, runs as an opt-in probe inside the
-production image so it can use `src.sources.mosir_tychy.MosirTychySource` without
+production image so it can use
+`src.integrations.mosir_tychy.source.MosirTychySource` without
 putting application source into the test image.
 
 Build the image locally:
@@ -153,7 +160,7 @@ Tests or an opt-in Hugging Face System Integration / live smoke job:
 docker build --target test-runtime -t event-agent:test-runtime .
 ```
 
-Its default command is `/app/scripts/run_hf_smoke.sh`. The wrapper establishes
+Its default command is `/app/scripts/system_integration/run_hf_smoke.sh`. The wrapper establishes
 the same Tailscale userspace SOCKS5 route as production, exports
 `SCRAPER_PROXY_URL`, runs
 `pytest tests/system_integration --run-smoke -m "smoke and live" -q` through
@@ -180,7 +187,7 @@ hf jobs run \
   -s TELEGRAM_BOT_TOKEN \
   -s ELASTIC_API_KEY \
   ghcr.io/michalmarczuk/event-agent-tests:latest \
-  /app/scripts/run_hf_smoke.sh
+  /app/scripts/system_integration/run_hf_smoke.sh
 ```
 
 Publish the same four pytest live checks as a separate Qase run by adding the Qase
@@ -198,7 +205,7 @@ hf jobs run \
   -s ELASTIC_API_KEY \
   -s QASE_API_TOKEN \
   ghcr.io/michalmarczuk/event-agent-tests:latest \
-  /app/scripts/run_hf_qase_smoke.sh
+  /app/scripts/system_integration/run_hf_smoke_qase.sh
 ```
 
 `run_hf_smoke.sh` explicitly keeps Qase disabled. The dedicated Qase runner
@@ -208,6 +215,20 @@ production-image probe is invoked separately with its own opt-in Qase wrapper.
 Supply every listed service setting and confirm `4 passed, 0 skipped`; missing service
 credentials can intentionally skip their corresponding smoke checks. Prefer
 an immutable `sha-<commit-sha>` image tag for repeatable diagnostics.
+
+The MOSiR live source probe runs in the production image, because it exercises
+the real application source without adding `src/` to `event-agent-tests`:
+
+```bash
+/app/scripts/system_integration/run_hf_mosir_live_smoke.sh
+```
+
+Its optional Qase wrapper creates a separate one-case run and preserves the
+probe's exit status:
+
+```bash
+/app/scripts/system_integration/run_hf_mosir_live_smoke_qase.sh
+```
 
 Run it with runtime secrets and persistent history:
 
@@ -219,9 +240,9 @@ docker run --rm \
 ```
 
 This direct Docker command uses the default
-`xvfb-run -a python src/daily.py` command and does not require Tailscale. The
+`xvfb-run -a python -m src.app.daily` command and does not require Tailscale. The
 image entry point is `tini -g --`; Hugging Face overrides only the command with
-`/app/scripts/run_hf.sh`, which starts its own single Xvfb wrapper after network
+`/app/scripts/runtime/run_hf_production.sh`, which starts its own single Xvfb wrapper after network
 setup.
 
 The Docker image contains no secrets. Credentials are injected at runtime with
@@ -273,7 +294,7 @@ passed to either Docker build and is never included in an image.
 
 Hugging Face Jobs is the intended production runtime and scheduler. The image's
 default command runs directly through Xvfb, while an HF Job overrides that
-command with `/app/scripts/run_hf.sh`. The wrapper:
+command with `/app/scripts/runtime/run_hf_production.sh`. The wrapper:
 
 1. requires `TAILSCALE_AUTHKEY` and `TAILSCALE_EXIT_NODE`;
 2. starts `tailscaled` with userspace networking and a SOCKS5 listener bound to
@@ -305,7 +326,7 @@ hf jobs run \
   -s TAILSCALE_AUTHKEY \
   --volume hf://buckets/mmarczuk/event-agent-data:/app/data \
   ghcr.io/michalmarczuk/event-agent:latest \
-  /app/scripts/run_hf.sh
+  /app/scripts/runtime/run_hf_production.sh
 ```
 
 With bare `-s NAME`, the Hugging Face CLI reads the value from the invoking
@@ -356,7 +377,7 @@ hf jobs scheduled run "15 8 * * *" \
   -s TAILSCALE_AUTHKEY \
   --volume hf://buckets/mmarczuk/event-agent-data:/app/data \
   ghcr.io/michalmarczuk/event-agent:latest \
-  /app/scripts/run_hf.sh
+  /app/scripts/runtime/run_hf_production.sh
 ```
 
 If a command is unavailable, update the Hugging Face CLI before changing the deployment:
@@ -397,7 +418,7 @@ non-secret environment configuration.
 
 ### Tailscale bootstrap fails
 
-`scripts/run_hf.sh` deliberately exits before Python starts if the auth key or
+`scripts/runtime/run_hf_production.sh` deliberately exits before Python starts if the auth key or
 exit-node setting is missing, `tailscaled` cannot start, or `tailscale up`
 fails. Check that the key is reusable, ephemeral, pre-approved when required,
 and authorized to use `autogroup:internet`; check that `proxy-pi` is online and
