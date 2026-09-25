@@ -294,7 +294,9 @@ passed to either Docker build and is never included in an image.
 
 Hugging Face Jobs is the intended production runtime and scheduler. The image's
 default command runs directly through Xvfb, while an HF Job overrides that
-command with `/app/scripts/runtime/run_hf_production.sh`. The wrapper:
+command with `/app/scripts/runtime/run_hf_production.sh`. The wrapper prepares
+Tailscale, then SOCKS5, then Xvfb, and finally runs
+`python -u -m src.app.daily`. It:
 
 1. requires `TAILSCALE_AUTHKEY` and `TAILSCALE_EXIT_NODE`;
 2. starts `tailscaled` with userspace networking and a SOCKS5 listener bound to
@@ -349,36 +351,76 @@ The current production cadence is:
 
 Cron is interpreted in UTC. This runs at `09:15` Poland time during CET (winter) and `10:15` Poland time during CEST (summer). The schedule is therefore not a fixed local-clock time across daylight-saving transitions.
 
-Typical scheduled-job commands:
+Before using `hf jobs scheduled run`, load the existing local `.env` values into
+the current shell:
 
 ```bash
-# List scheduled jobs
-hf jobs scheduled list
+set -a
+source .env
+set +a
+```
 
-# Trigger a scheduled job manually
-hf jobs scheduled trigger SCHEDULED_JOB_ID
+Having values in `.env` alone is not enough. Both `--env NAME="$VAR"` and
+`--secrets NAME` read values from the current shell environment. Do not copy
+secret values directly into a command. Check that the required values are set
+without printing them:
 
-# Delete a scheduled job
-hf jobs scheduled delete SCHEDULED_JOB_ID
+```bash
+echo ${TAILSCALE_AUTHKEY:+TAILSCALE_AUTHKEY set}
+echo ${OPENAI_API_KEY:+OPENAI_API_KEY set}
+echo ${TICKETMASTER_API_KEY:+TICKETMASTER_API_KEY set}
+echo ${TELEGRAM_BOT_TOKEN:+TELEGRAM_BOT_TOKEN set}
+echo ${TELEGRAM_CHAT_ID:+TELEGRAM_CHAT_ID set}
+echo ${ELASTIC_API_KEY:+ELASTIC_API_KEY set}
+```
 
-# Create or recreate it with the current image and runtime configuration
+List the scheduled job by name:
+
+```bash
+hf jobs scheduled ls --name event-agent-daily
+```
+
+To replace the existing job, first find its ID with the command above, then
+delete it:
+
+```bash
+hf jobs scheduled delete <SCHEDULED_JOB_ID>
+```
+
+Create the production scheduled job:
+
+```bash
 hf jobs scheduled run "15 8 * * *" \
-  --name event-agent \
+  --name event-agent-daily \
+  --no-concurrency \
   --flavor cpu-basic \
-  --env MODEL=YOUR_MODEL_NAME \
+  --env MODEL="$MODEL" \
   --env EVENT_BASE_LOCATION_NAME=Tychy \
-  --env EVENT_BASE_GEOPOINT=YOUR_TYCHY_GEOHASH \
+  --env EVENT_BASE_GEOPOINT="$EVENT_BASE_GEOPOINT" \
   --env EVENT_SEARCH_RADIUS_KM=50 \
-  --env TAILSCALE_EXIT_NODE=100.89.86.79 \
-  -s OPENAI_API_KEY \
-  -s TICKETMASTER_API_KEY \
-  -s TELEGRAM_BOT_TOKEN \
-  -s TELEGRAM_CHAT_ID \
-  -s TAILSCALE_AUTHKEY \
+  --env TAILSCALE_EXIT_NODE="$TAILSCALE_EXIT_NODE" \
+  --env ELASTIC_OTLP_ENDPOINT="$ELASTIC_OTLP_ENDPOINT" \
+  --secrets OPENAI_API_KEY \
+  --secrets TICKETMASTER_API_KEY \
+  --secrets TELEGRAM_BOT_TOKEN \
+  --secrets TELEGRAM_CHAT_ID \
+  --secrets TAILSCALE_AUTHKEY \
+  --secrets ELASTIC_API_KEY \
   --volume hf://buckets/mmarczuk/event-agent-data:/app/data \
   ghcr.io/michalmarczuk/event-agent:latest \
   /app/scripts/runtime/run_hf_production.sh
 ```
+
+After creation, confirm it appears in `hf jobs scheduled ls --name
+event-agent-daily`, then trigger it manually with the returned ID:
+
+```bash
+hf jobs scheduled trigger <SCHEDULED_JOB_ID>
+```
+
+The trigger runs the job immediately and does not change its schedule. Check
+the logs and confirm startup reaches `run_hf_production.sh` → Tailscale →
+SOCKS5 → Xvfb → `python -u -m src.app.daily`.
 
 If a command is unavailable, update the Hugging Face CLI before changing the deployment:
 
@@ -415,6 +457,16 @@ The unified CI workflow does not need application secrets. Verify
 `TELEGRAM_CHAT_ID`, and `TAILSCALE_AUTHKEY` are present in the shell invoking
 the Hugging Face CLI. `MODEL` and `TAILSCALE_EXIT_NODE` must also be supplied as
 non-secret environment configuration.
+
+If job creation or startup reports `TAILSCALE_AUTHKEY is required`, the `.env`
+file likely exists but its values were not exported to the current shell. Load
+it and recreate or run the HF Job:
+
+```bash
+set -a
+source .env
+set +a
+```
 
 ### Tailscale bootstrap fails
 

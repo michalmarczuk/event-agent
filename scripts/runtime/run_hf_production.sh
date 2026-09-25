@@ -58,10 +58,22 @@ while [ ! -S "$tailscale_socket" ]; do
 done
 
 echo "Connecting to Tailscale..."
-tailscale --socket="$tailscale_socket" up \
+
+if ! tailscale --socket="$tailscale_socket" up \
     --auth-key="file:$auth_file" \
     --exit-node="$TAILSCALE_EXIT_NODE" \
-    --timeout=30s
+    --timeout=60s
+then
+    echo "Tailscale failed to reach Running state. Diagnostics:" >&2
+
+    tailscale --socket="$tailscale_socket" status || true
+    tailscale --socket="$tailscale_socket" status --json || true
+    tailscale --socket="$tailscale_socket" netcheck || true
+    tailscale --socket="$tailscale_socket" ping \
+        --timeout=5s "$TAILSCALE_EXIT_NODE" || true
+
+    exit 1
+fi
 
 echo "Tailscale connected"
 
