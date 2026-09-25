@@ -1,3 +1,4 @@
+import json
 import logging
 
 import requests
@@ -24,8 +25,29 @@ def send_telegram_message(message: str) -> None:
             timeout=10,
         )
         response.raise_for_status()
-    except Exception:
-        logger.error("Telegram delivery failed")
+    except requests.HTTPError as exc:
+        response = exc.response
+        status_code = response.status_code if response is not None else None
+        description = None
+        if response is not None:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict) and isinstance(payload.get("description"), str):
+                description = payload["description"].replace(settings.telegram_bot_token, "[REDACTED]")
+        if description is None:
+            logger.error("Telegram delivery failed status=%s", status_code)
+        else:
+            logger.error(
+                "Telegram delivery failed status=%s description=%s",
+                status_code,
+                json.dumps(description),
+            )
+    except requests.RequestException as exc:
+        logger.error("Telegram delivery failed exception_type=%s", type(exc).__name__)
+    except Exception as exc:
+        logger.error("Telegram delivery failed exception_type=%s", type(exc).__name__)
     else:
         logger.info("Telegram delivery succeeded")
         return
